@@ -334,6 +334,21 @@ button.primary:active { transform: translateY(1px); }
     <div class="panel-scroll">
 
       <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🎚 Difficulty</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Challenge level — sets legs, angle, rounding, leg mix &amp; turn below</label>
+            <select id="selDifficultyLevel">
+              <option value="beginner" selected>Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="hard">Hard</option>
+              <option value="hardest">Hardest</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
         <div class="side-section-head"><span class="chev">▾</span> 🧭 Route</div>
         <div class="side-section-body">
           <div class="field">
@@ -347,10 +362,20 @@ button.primary:active { transform: translateY(1px); }
           <div class="field" id="fieldSecondAirport" style="display:none;">
             <select id="selSecond"></select>
           </div>
-          <label class="check-row check-row-tight">
-            <input type="checkbox" id="chkFixToFix">
-            <span>Mix in Fix-to-Fix legs (direct course/distance between two fixes)</span>
-          </label>
+          <div class="field-row field-row-3">
+            <div class="field">
+              <label>Fix-to-Fix legs</label>
+              <input type="number" id="numFixToFix" min="0" max="10" value="0">
+            </div>
+            <div class="field">
+              <label>DME Arc legs</label>
+              <input type="number" id="numDmeArc" min="0" max="10" value="0">
+            </div>
+            <div class="field">
+              <label>Holding legs</label>
+              <input type="number" id="numHoldingLegs" min="0" max="10" value="0">
+            </div>
+          </div>
           <div class="field" id="fieldTrainingArea" style="display:none;">
             <label>Training area(s) — tap to add/remove</label>
             <div class="chip-group chip-sm" id="chipTrainingArea">
@@ -381,23 +406,9 @@ button.primary:active { transform: translateY(1px); }
               </select>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div class="side-section" data-open="true">
-        <div class="side-section-head"><span class="chev">▾</span> 🏁 Ending</div>
-        <div class="side-section-body">
-          <div class="field">
-            <label>End the sortie with</label>
-            <div class="chip-group" id="chipEnding">
-              <div class="chip active" data-val="hold">Holding</div>
-              <div class="chip" data-val="approach">Approach</div>
-              <div class="chip" data-val="plain">Just end</div>
-            </div>
-          </div>
-          <div class="field-row" id="fieldTurnMode">
+          <div class="field-row">
             <div class="field">
-              <label>Turn</label>
+              <label>Turn (for Holding legs)</label>
               <select id="selTurn">
                 <option value="right">Standard (R)</option>
                 <option value="mixed">Random</option>
@@ -830,10 +841,43 @@ function navaidsUsableAsFix(airport) {
   return list.length ? list : airport.navaids;
 }
 
-function runwayIlsCourse(rw) {
-  const parts = rw.id.split("/");
-  const idx = parts.indexOf(rw.ils);
-  return rw.hdgs[idx];
+// DME arcs need a DME source — NDBs don't have one.
+function navaidsUsableForArc(airport) {
+  return airport.navaids.filter((n) => n.type === "VOR/DME" || n.type === "TACAN");
+}
+
+// Geometry of a DME-arc leg: entering the arc on `entryRadial` at `arcDme`, turning
+// `turn` ("left"/"right") through `sweepDeg` to the exit radial at the same DME.
+// Radial increasing (clockwise as seen on a map) = a right-hand arc (station kept on
+// the aircraft's right, continuous right turns); decreasing = left-hand.
+function computeArcFix(stationPos, entryRadial, arcDme, turn, sweepDeg) {
+  const signedSweep = turn === "right" ? sweepDeg : -sweepDeg;
+  const exitRadial = norm360(entryRadial + signedSweep);
+  const midRadial = norm360(entryRadial + signedSweep / 2);
+  const exitPos = destPoint(stationPos, exitRadial, arcDme);
+  const midPos = destPoint(stationPos, midRadial, arcDme);
+  const headingAtExit = norm360(exitRadial + (turn === "right" ? 90 : -90));
+  return { exitRadial, exitPos, midPos, headingAtExit };
+}
+
+// Build the exact per-leg-kind sequence for a sortie (counts, not chance), then
+// shuffle so the types are mixed through the sortie rather than grouped together.
+function buildLegKinds(legCount, fixToFixCount, dmeArcCount, holdingCount) {
+  const ftf = Math.max(0, Math.min(fixToFixCount || 0, legCount));
+  const arc = Math.max(0, Math.min(dmeArcCount || 0, legCount - ftf));
+  const hold = Math.max(0, Math.min(holdingCount || 0, legCount - ftf - arc));
+  const intercept = legCount - ftf - arc - hold;
+  const kinds = [
+    ...Array(ftf).fill("fixToFix"),
+    ...Array(arc).fill("dmeArc"),
+    ...Array(hold).fill("hold"),
+    ...Array(intercept).fill("intercept"),
+  ];
+  for (let i = kinds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [kinds[i], kinds[j]] = [kinds[j], kinds[i]];
+  }
+  return kinds;
 }
 
 /** Resolve an airport's briefed training-area boundary/areas into real lat/lon
@@ -856,6 +900,14 @@ function computeTrainingAreaPolygons(airport) {
 
 /** Uniformly-ish sample a lat/lon point inside one of the given polygons
  * (rejection sampling against each polygon's bounding box). */
+// True if `pt` falls inside ANY of the given polygons — used to confirm a leg's
+// whole path stays within the union of the SELECTED training sub-area(s), not just
+// somewhere inside the overall outer boundary (which would let it cut through an
+// unselected sub-area).
+function pointInAnyPolygon(pt, polys) {
+  return polys.some((poly) => pointInPolygon(pt, poly));
+}
+
 function samplePointInPolygons(polys) {
   for (let tries = 0; tries < 400; tries++) {
     const poly = pick(polys);
@@ -872,62 +924,134 @@ function generateFlightProfile(config) {
   const dep = AIRPORTS[config.departureIcao];
   const pool = [];
   navaidsUsableAsFix(dep).forEach((n) => pool.push({ airport: dep, navaid: n }));
+  const arcPool = [];
+  navaidsUsableForArc(dep).forEach((n) => arcPool.push({ airport: dep, navaid: n }));
   if (config.stationMode === "dual" && config.secondIcao && AIRPORTS[config.secondIcao]) {
     const second = AIRPORTS[config.secondIcao];
     navaidsUsableAsFix(second).forEach((n) => pool.push({ airport: second, navaid: n }));
+    navaidsUsableForArc(second).forEach((n) => arcPool.push({ airport: second, navaid: n }));
   }
 
   const courseStep = config.difficulty === "easy" ? 30 : config.difficulty === "medium" ? 10 : 1;
   const interceptAngle = config.interceptAngle || 45;
+  // Training altitude is restricted to 1000-5500 ft AGL, in 500ft steps.
+  const altitude = randInt(2, 11) * 500;
 
   let currentPos = { lat: dep.arp.lat, lon: dep.arp.lon };
   const legs = [];
+  const legKinds = buildLegKinds(config.legCount, config.fixToFixCount, config.dmeArcCount, config.holdingLegCount);
   for (let i = 0; i < config.legCount; i++) {
-    const ref = pick(pool);
+    // DME arcs need a DME-capable station; fall back to a plain intercept leg if this
+    // airport/station-mode combo has none (e.g. an NDB-only field).
+    const wantArc = legKinds[i] === "dmeArc" && arcPool.length > 0;
+    let kind = legKinds[i] === "dmeArc" && !wantArc ? "intercept" : legKinds[i];
+    const ref = pick(wantArc ? arcPool : pool);
     const station = ref.navaid;
-    // Fix-to-Fix legs are point-to-point (compute direct course/distance between two
-    // fixes) instead of intercepting a radial off the station and tracking it outbound.
-    const isFixToFix = !!config.fixToFix && Math.random() < 0.5;
 
     // If this station's airport has a briefed training area and the instructor
     // picked which sub-area(s) to use, sample the fix from inside those areas
     // instead of a fully random radial/DME.
-    let course, dme, fixPos;
+    let course, dme, fixPos, arcExtra;
     const taPolys = computeTrainingAreaPolygons(ref.airport);
-    if (taPolys && config.trainingAreas && config.trainingAreas.length) {
-      const selectedPolys = config.trainingAreas.map((k) => taPolys.areas[k]).filter(Boolean);
-      // Sampling only constrains the FIX (leg endpoint) to be inside the area — the
-      // intercept turn (or, for fix-to-fix, the direct leg itself) leading up to it
-      // could still swing outside the boundary before reaching it. Retry candidates
-      // until the whole leg checks out inside the overall boundary, so the sortie
-      // never strays out.
-      for (let tries = 0; tries < 40 && course === undefined; tries++) {
-        const point = selectedPolys.length ? samplePointInPolygons(selectedPolys) : null;
+    const selectedPolys = (taPolys && config.trainingAreas && config.trainingAreas.length)
+      ? config.trainingAreas.map((k) => taPolys.areas[k]).filter(Boolean) : [];
+    // The real departure airport can sit a hair outside the training-area polygon
+    // (its CTR vertex is the reference navaid's exact position, not the ARP) — every
+    // sortie is forced to start there regardless, so on the very first leg don't
+    // require the intercept-join point to be in-area too, only the fix itself (and,
+    // for an arc, its exit/mid points). From leg 2 on, currentPos is always a fix we
+    // chose ourselves and this never applies.
+    const startInArea = !selectedPolys.length || pointInAnyPolygon(currentPos, selectedPolys);
+    if (selectedPolys.length) {
+      // Sampling only constrains the FIX (leg endpoint) to be inside the SELECTED
+      // sub-area(s) — the intercept turn (or, for fix-to-fix/dme-arc, the rest of
+      // the leg's path) leading up to it could still cut through an unselected
+      // sub-area on the way, even while staying inside the overall outer boundary.
+      // Retry candidates until every point checked below falls inside the union of
+      // the selected sub-area(s) specifically, not just the training area at large.
+      for (let tries = 0; tries < 60 && course === undefined; tries++) {
+        const point = samplePointInPolygons(selectedPolys);
         if (!point) break;
         const bd = bearingDistance(station.pos, point);
         const cCourse = Math.round(bd.bearing);
         const cDme = Math.round(bd.distNm * 10) / 10;
         const cFixPos = destPoint(station.pos, cCourse, cDme);
-        let ok;
-        if (isFixToFix) {
+        let ok, extra;
+        if (kind === "fixToFix") {
           const mid = { lat: (currentPos.lat + cFixPos.lat) / 2, lon: (currentPos.lon + cFixPos.lon) / 2 };
-          ok = pointInPolygon(cFixPos, taPolys.boundary) && pointInPolygon(mid, taPolys.boundary);
+          ok = pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys));
+        } else if (kind === "dmeArc") {
+          const turn = pick(["left", "right"]);
+          const sweepDeg = roundTo(rand(20, 70), 10);
+          extra = computeArcFix(station.pos, cCourse, cDme, turn, sweepDeg);
+          extra.turn = turn; extra.sweepDeg = sweepDeg;
+          const curBearing = bearingDistance(station.pos, currentPos).bearing;
+          const cInterceptHeading = solveIntercept(curBearing, cCourse, interceptAngle).interceptHeading;
+          const interceptPt = intersectCourses(currentPos, cInterceptHeading, station.pos, cCourse);
+          ok = interceptPt && (!startInArea || pointInAnyPolygon(interceptPt, selectedPolys))
+            && pointInAnyPolygon(cFixPos, selectedPolys)
+            && pointInAnyPolygon(extra.exitPos, selectedPolys)
+            && pointInAnyPolygon(extra.midPos, selectedPolys);
         } else {
           const curBearing = bearingDistance(station.pos, currentPos).bearing;
           const cInterceptHeading = solveIntercept(curBearing, cCourse, interceptAngle).interceptHeading;
           const interceptPt = intersectCourses(currentPos, cInterceptHeading, station.pos, cCourse);
-          ok = interceptPt && pointInPolygon(interceptPt, taPolys.boundary) && pointInPolygon(cFixPos, taPolys.boundary);
+          ok = interceptPt && (!startInArea || pointInAnyPolygon(interceptPt, selectedPolys)) && pointInAnyPolygon(cFixPos, selectedPolys);
         }
-        if (ok) { course = cCourse; dme = cDme; fixPos = cFixPos; }
+        if (ok) { course = cCourse; dme = cDme; fixPos = kind === "dmeArc" ? extra.exitPos : cFixPos; arcExtra = extra; }
+      }
+      // The full-complexity search above can genuinely have no solution (e.g. a
+      // wide arc sweep or steep intercept angle just doesn't fit inside a small
+      // sub-area, no matter how many times you retry). Rather than ever falling
+      // through to a fully unconstrained leg that could leave the selected area,
+      // downgrade to the simplest leg shape — direct fix-to-fix, which only needs
+      // the fix and its midpoint in-area — and retry against that instead.
+      if (course === undefined) {
+        for (let tries = 0; tries < 100 && course === undefined; tries++) {
+          const point = samplePointInPolygons(selectedPolys);
+          if (!point) break;
+          const bd = bearingDistance(station.pos, point);
+          const cCourse = Math.round(bd.bearing);
+          const cDme = Math.round(bd.distNm * 10) / 10;
+          const cFixPos = destPoint(station.pos, cCourse, cDme);
+          const mid = { lat: (currentPos.lat + cFixPos.lat) / 2, lon: (currentPos.lon + cFixPos.lon) / 2 };
+          if (pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys))) {
+            course = cCourse; dme = cDme; fixPos = cFixPos; kind = "fixToFix"; arcExtra = undefined;
+          }
+        }
+      }
+    }
+    if (course === undefined && selectedPolys.length) {
+      // Both validated tiers above failed to find any compliant candidate (can
+      // happen for a very small/thin sub-area) — this is the bulletproof floor:
+      // take any point straight out of the selected area(s), no further path
+      // validation. The fix is still guaranteed in-area even if this particular
+      // leg's join isn't as clean as usual.
+      const point = samplePointInPolygons(selectedPolys);
+      if (point) {
+        const bd = bearingDistance(station.pos, point);
+        course = Math.round(bd.bearing);
+        dme = Math.round(bd.distNm * 10) / 10;
+        fixPos = destPoint(station.pos, course, dme);
+        kind = "fixToFix";
+        arcExtra = undefined;
       }
     }
     if (course === undefined) {
       course = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
       dme = roundTo(rand(6, 25), 1);
-      fixPos = destPoint(station.pos, course, dme);
+      if (kind === "dmeArc") {
+        const turn = pick(["left", "right"]);
+        const sweepDeg = roundTo(rand(20, 70), 10);
+        arcExtra = computeArcFix(station.pos, course, dme, turn, sweepDeg);
+        arcExtra.turn = turn; arcExtra.sweepDeg = sweepDeg;
+        fixPos = arcExtra.exitPos;
+      } else {
+        fixPos = destPoint(station.pos, course, dme);
+      }
     }
 
-    if (isFixToFix) {
+    if (kind === "fixToFix") {
       const { bearing: directCourse, distNm: directDistNm } = bearingDistance(currentPos, fixPos);
       legs.push({
         index: i + 1,
@@ -941,6 +1065,61 @@ function generateFlightProfile(config) {
         directDistNm: Math.round(directDistNm * 10) / 10,
         fixPos,
         headingAtFix: Math.round(directCourse),
+      });
+    } else if (kind === "dmeArc") {
+      // bearingFromStation = the radial the aircraft is currently on, i.e. bearing FROM
+      // the station TO the aircraft's current position (not the reciprocal).
+      const { bearing, distNm } = bearingDistance(station.pos, currentPos);
+      const { side, interceptHeading } = solveIntercept(bearing, course, interceptAngle);
+      legs.push({
+        index: i + 1,
+        kind: "dmeArc",
+        stationAirport: ref.airport,
+        station,
+        course, // entry radial
+        dme,    // arc DME
+        exitRadial: arcExtra.exitRadial,
+        turn: arcExtra.turn,
+        sweepDeg: arcExtra.sweepDeg,
+        fromPos: currentPos,
+        bearingFromStation: Math.round(bearing * 10) / 10,
+        distanceNm: Math.round(distNm * 10) / 10,
+        side,
+        interceptAngle,
+        interceptHeading: Math.round(interceptHeading),
+        fixPos,
+        headingAtFix: Math.round(arcExtra.headingAtExit),
+      });
+    } else if (kind === "hold") {
+      // Join the fix exactly like a plain intercept leg, then hold there — a
+      // self-contained holding exercise at its own location, distinct from any
+      // final "Ending: Hold" (which is a separate thing that happens after all
+      // legs, possibly at yet another fix).
+      const { bearing, distNm } = bearingDistance(station.pos, currentPos);
+      const { side, interceptHeading } = solveIntercept(bearing, course, interceptAngle);
+      const inboundCourse = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
+      const holdTurn = config.turnMode === "mixed" ? pick(["right", "right", "right", "left"]) : config.turnMode;
+      const entry = classifyEntry(inboundCourse, course, holdTurn);
+      legs.push({
+        index: i + 1,
+        kind: "hold",
+        stationAirport: ref.airport,
+        station,
+        course,
+        dme,
+        fromPos: currentPos,
+        bearingFromStation: Math.round(bearing * 10) / 10,
+        distanceNm: Math.round(distNm * 10) / 10,
+        side,
+        interceptAngle,
+        interceptHeading: Math.round(interceptHeading),
+        fixPos,
+        inboundCourse,
+        turn: holdTurn,
+        entry,
+        holdLeg: { kind: "time", value: 1 },
+        marginToBoundary: entryDistanceToBoundary(norm360(course - inboundCourse), holdTurn),
+        headingAtFix: inboundCourse,
       });
     } else {
       // bearingFromStation = the radial the aircraft is currently on, i.e. bearing FROM
@@ -967,56 +1146,34 @@ function generateFlightProfile(config) {
     currentPos = fixPos;
   }
 
-  const lastCourse = legs[legs.length - 1].headingAtFix;
-  let ending;
-  if (config.ending === "hold") {
-    const inboundCourse = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
-    const turn = config.turnMode === "mixed" ? pick(["right", "right", "right", "left"]) : config.turnMode;
-    const entry = classifyEntry(inboundCourse, lastCourse, turn);
-    const legIsDme = legs[legs.length - 1].station.type === "VOR/DME" || legs[legs.length - 1].station.type === "TACAN";
-    const holdLeg = legIsDme && Math.random() < 0.5 ? { kind: "dme", value: roundTo(rand(4, 12), 0.5) } : { kind: "time", value: pick([1, 1, 1.5]) };
-    ending = {
-      type: "hold",
-      navaid: legs[legs.length - 1].station,
-      atPos: currentPos,
-      inboundCourse,
-      turn,
-      arrivalHeading: lastCourse,
-      entry,
-      leg: holdLeg,
-      marginToBoundary: entryDistanceToBoundary(norm360(lastCourse - inboundCourse), turn),
-    };
-  } else if (config.ending === "approach") {
-    const rw = (dep.runways || []).find((r) => r.ils) || (dep.runways || [])[0];
-    const finalCourse = rw ? runwayIlsCourse(rw) : lastCourse;
-    const locNavaid = dep.navaids.find((n) => n.type === "ILS/LOC") || dep.navaids[0];
-    const { bearing, distNm } = bearingDistance(locNavaid.pos, currentPos);
-    const { side, interceptHeading } = solveIntercept(bearing, finalCourse, interceptAngle);
-    ending = {
-      type: "approach",
-      navaid: locNavaid,
-      runway: rw,
-      course: finalCourse,
-      fromPos: currentPos,
-      bearingFromStation: Math.round(bearing * 10) / 10,
-      distanceNm: Math.round(distNm * 10) / 10,
-      side,
-      interceptAngle,
-      interceptHeading: Math.round(interceptHeading),
-    };
-  } else {
-    ending = { type: "plain", atPos: currentPos };
-  }
-
-  const altitude = roundTo(randInt(20, 90) * 100, 500);
+  const ending = { type: "plain", atPos: currentPos };
 
   return { departure: dep, legs, ending, altitude, config, id: 0 };
+}
+
+// A holding fix briefed right on top of the departure airport isn't a realistic
+// training scenario — regenerate the whole profile (cheap, since it's pure random
+// generation) until the hold ends up at least this far from the departure ARP.
+const MIN_HOLD_DIST_FROM_DEP_NM = 8;
+
+function holdLegsFarEnoughFromDeparture(profile) {
+  return profile.legs
+    .filter((l) => l.kind === "hold")
+    .every((l) => bearingDistance(profile.departure.arp, l.fixPos).distNm >= MIN_HOLD_DIST_FROM_DEP_NM);
+}
+
+function generateFlightProfileValidated(config) {
+  let profile = generateFlightProfile(config);
+  for (let tries = 0; tries < 50 && !holdLegsFarEnoughFromDeparture(profile); tries++) {
+    profile = generateFlightProfile(config);
+  }
+  return profile;
 }
 
 function generateProfiles(config, count) {
   const list = [];
   for (let i = 0; i < count; i++) {
-    const p = generateFlightProfile(config);
+    const p = generateFlightProfileValidated(config);
     p.id = i + 1;
     list.push(p);
   }
@@ -1122,22 +1279,24 @@ function computeProfileGeometry(profile) {
   let prevXY = depXY;
   legs.forEach((L) => {
     L.fromXY = prevXY;
-    // Fix-to-fix legs have no intercept maneuver — the whole leg is one direct
-    // segment from the previous fix, so collapse the intercept point onto it.
-    L.interceptXY = L.leg.kind === "fixToFix"
-      ? L.fromXY
-      : (lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY);
+    if (L.leg.kind === "fixToFix") {
+      // No intercept maneuver — the whole leg is one direct segment from the
+      // previous fix, so collapse the intercept point onto it.
+      L.interceptXY = L.fromXY;
+    } else if (L.leg.kind === "dmeArc") {
+      L.interceptXY = lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY;
+      const sweepSigned = L.leg.turn === "right" ? L.leg.sweepDeg : -L.leg.sweepDeg;
+      L.arcPts = arcPointsNM(L.stationXY, L.leg.dme, L.leg.course, sweepSigned, 24);
+    } else if (L.leg.kind === "hold") {
+      L.interceptXY = lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY;
+      L.racetrack = computeRacetrackXY(L.fixXY, { inboundCourse: L.leg.inboundCourse, turn: L.leg.turn, entry: L.leg.entry, leg: L.leg.holdLeg });
+    } else {
+      L.interceptXY = lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY;
+    }
     prevXY = L.fixXY;
   });
 
   const ending = { type: profile.ending.type, fromXY: prevXY };
-  if (profile.ending.type === "hold") {
-    ending.stationXY = toNM(profile.ending.navaid.pos);
-    ending.racetrack = computeRacetrackXY(prevXY, profile.ending);
-  } else if (profile.ending.type === "approach") {
-    ending.stationXY = toNM(profile.ending.navaid.pos);
-    ending.interceptXY = lineIntersect(prevXY, profile.ending.interceptHeading, ending.stationXY, profile.ending.course) || prevXY;
-  }
 
   return { origin, toNM, toLL, depXY, legs, ending };
 }
@@ -1216,39 +1375,37 @@ async function renderProfileMap(container, profile) {
     if (L_.leg.kind === "fixToFix") {
       L.polyline([llArr(fromLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
         .bindTooltip(`Direct ${pad3(L_.leg.directCourse)}° / ${L_.leg.directDistNm} NM`, { sticky: true });
+    } else if (L_.leg.kind === "dmeArc") {
+      L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
+      const arcLLObjs = L_.arcPts.map((p) => geo.toLL(p));
+      arcLLObjs.forEach(addBounds);
+      L.polyline(arcLLObjs.map(llArr), TRACK_STYLE).addTo(map)
+        .bindTooltip(`${L_.leg.dme} DME arc, ${L_.leg.turn.toUpperCase()} turn, R${pad3(L_.leg.course)}° → R${pad3(L_.leg.exitRadial)}°`, { sticky: true });
+    } else if (L_.leg.kind === "hold") {
+      L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
+      L.polyline([llArr(interceptLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
+        .bindTooltip(`Track ${pad3(L_.leg.course)}° to ${L_.leg.dme} DME`, { sticky: true });
+      const rt = L_.racetrack;
+      const loopPts = rt.loop.map((p) => geo.toLL(p));
+      loopPts.forEach(addBounds);
+      L.polyline(loopPts.map(llArr), TRACK_STYLE).addTo(map);
+      if (rt.kink) L.polyline(rt.kink.map((p) => llArr(geo.toLL(p))), INTERCEPT_STYLE).addTo(map);
     } else {
       L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
       L.polyline([llArr(interceptLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
         .bindTooltip(`Track ${pad3(L_.leg.course)}° to ${L_.leg.dme} DME`, { sticky: true });
     }
-    L.marker(llArr(fixLL), { icon: fixIcon(i + 1) }).addTo(map).bindTooltip(
-      `FIX ${i + 1} — R${pad3(L_.leg.course)}°/${L_.leg.dme} DME from ${L_.leg.station.id || L_.leg.station.type}`
-    );
-  });
-
-  // Ending
-  if (geo.ending.type === "hold") {
-    ensureStation(geo.ending.stationXY, profile.ending.navaid);
-    const rt = geo.ending.racetrack;
-    const loopPts = rt.loop.map((p) => geo.toLL(p));
-    loopPts.forEach(addBounds);
-    L.polyline(loopPts.map(llArr), TRACK_STYLE).addTo(map);
-    if (rt.kink) {
-      const kinkLL = rt.kink.map((p) => llArr(geo.toLL(p)));
-      L.polyline(kinkLL, INTERCEPT_STYLE).addTo(map);
+    let fixDesc, fixMarkerIcon = fixIcon(i + 1);
+    if (L_.leg.kind === "dmeArc") {
+      fixDesc = `FIX ${i + 1} — R${pad3(L_.leg.exitRadial)}°/${L_.leg.dme} DME from ${L_.leg.station.id || L_.leg.station.type} (arc exit)`;
+    } else if (L_.leg.kind === "hold") {
+      fixDesc = `FIX ${i + 1} — Hold at ${L_.leg.station.id || L_.leg.station.type}, inbound ${pad3(L_.leg.inboundCourse)}°, ${L_.leg.turn} turns`;
+      fixMarkerIcon = holdIcon;
+    } else {
+      fixDesc = `FIX ${i + 1} — R${pad3(L_.leg.course)}°/${L_.leg.dme} DME from ${L_.leg.station.id || L_.leg.station.type}`;
     }
-    const fLL = geo.toLL(rt.F);
-    L.marker(llArr(fLL), { icon: holdIcon }).addTo(map).bindTooltip(`Hold — ${profile.ending.navaid.id || profile.ending.navaid.type}, inbound ${pad3(profile.ending.inboundCourse)}°, ${profile.ending.turn} turns`);
-  } else if (geo.ending.type === "approach") {
-    ensureStation(geo.ending.stationXY, profile.ending.navaid);
-    const fromLL = geo.toLL(geo.ending.fromXY);
-    const interceptLL = geo.toLL(geo.ending.interceptXY);
-    const stationLL = geo.toLL(geo.ending.stationXY);
-    addBounds(stationLL);
-    L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
-    L.polyline([llArr(interceptLL), llArr(stationLL)], TRACK_STYLE).addTo(map)
-      .bindTooltip(`Final approach course ${pad3(profile.ending.course)}°`, { sticky: true });
-  }
+    L.marker(llArr(fixLL), { icon: fixMarkerIcon }).addTo(map).bindTooltip(fixDesc);
+  });
 
   // Training-area overlay (VTBL etc.) — drawn last, under everything visually but
   // added after so it can still be toggled; low-key styling keeps it out of the way.
@@ -1264,7 +1421,7 @@ async function renderProfileMap(container, profile) {
  * (their edges share the CTR vertex, so stroking every one of them at once drew a
  * tangle of overlapping lines through the middle — fill-only avoids that). */
 function drawTrainingAreaOverlay(map, profile) {
-  const airports = new Set([profile.departure, ...profile.legs.map((l) => l.stationAirport)]);
+  const airports = new Set([profile.departure, ...profile.legs.map((l) => l.stationAirport).filter(Boolean)]);
   const usedKeys = new Set(profile.config.trainingAreas || []);
   airports.forEach((airport) => {
     const polys = computeTrainingAreaPolygons(airport);
@@ -1341,25 +1498,23 @@ function buildKML(profile) {
     const fromLL = geo.toLL(L.fromXY), interceptLL = geo.toLL(L.interceptXY), fixLL = geo.toLL(L.fixXY);
     if (L.leg.kind === "fixToFix") {
       lines.push(kmlLine(`Leg ${i + 1} — direct ${pad3(L.leg.directCourse)}°/${L.leg.directDistNm}NM`, "trackStyle", [fromLL, fixLL]));
+    } else if (L.leg.kind === "dmeArc") {
+      lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
+      lines.push(kmlLine(`Leg ${i + 1} — ${L.leg.dme}DME arc R${pad3(L.leg.course)} to R${pad3(L.leg.exitRadial)}`, "trackStyle", L.arcPts.map(geo.toLL)));
+    } else if (L.leg.kind === "hold") {
+      lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
+      lines.push(kmlLine(`Leg ${i + 1} — track ${pad3(L.leg.course)}°`, "trackStyle", [interceptLL, fixLL]));
+      lines.push(kmlLine(`Leg ${i + 1} — holding pattern`, "trackStyle", L.racetrack.loop.map(geo.toLL)));
+      if (L.racetrack.kink) lines.push(kmlLine(`Leg ${i + 1} — hold entry`, "interceptStyle", L.racetrack.kink.map(geo.toLL)));
     } else {
       lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
       lines.push(kmlLine(`Leg ${i + 1} — track ${pad3(L.leg.course)}°`, "trackStyle", [interceptLL, fixLL]));
     }
-    placemarks.push(kmlPoint(`FIX ${i + 1}`, `R${pad3(L.leg.course)}°/${L.leg.dme}DME from ${L.leg.station.id || L.leg.station.type}`, fixLL));
+    const fixDesc = L.leg.kind === "hold"
+      ? `Hold at ${L.leg.station.id || L.leg.station.type}, inbound ${pad3(L.leg.inboundCourse)}°, ${L.leg.turn} turns`
+      : `R${pad3(L.leg.course)}°/${L.leg.dme}DME from ${L.leg.station.id || L.leg.station.type}`;
+    placemarks.push(kmlPoint(`FIX ${i + 1}`, fixDesc, fixLL));
   });
-
-  if (geo.ending.type === "hold") {
-    stationPlacemark(geo.ending.stationXY, profile.ending.navaid);
-    const rt = geo.ending.racetrack;
-    lines.push(kmlLine("Holding pattern", "trackStyle", rt.loop.map(geo.toLL)));
-    if (rt.kink) lines.push(kmlLine("Entry maneuver", "interceptStyle", rt.kink.map(geo.toLL)));
-    placemarks.push(kmlPoint("HOLD FIX", `Inbound course ${pad3(profile.ending.inboundCourse)}°, ${profile.ending.turn} turns`, geo.toLL(rt.F)));
-  } else if (geo.ending.type === "approach") {
-    stationPlacemark(geo.ending.stationXY, profile.ending.navaid);
-    const fromLL = geo.toLL(geo.ending.fromXY), interceptLL = geo.toLL(geo.ending.interceptXY), stLL = geo.toLL(geo.ending.stationXY);
-    lines.push(kmlLine("Final — intercept", "interceptStyle", [fromLL, interceptLL]));
-    lines.push(kmlLine("Final approach course", "trackStyle", [interceptLL, stLL]));
-  }
 
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -1402,16 +1557,6 @@ function buildGPX(profile) {
     rtepts.push(gpxRtept(fixLL, `FIX${i + 1}`));
   });
 
-  if (geo.ending.type === "hold") {
-    const fLL = geo.toLL(geo.ending.racetrack.F);
-    wpts.push(gpxWpt(fLL, "HOLD", `IC ${pad3(profile.ending.inboundCourse)}° ${profile.ending.turn} turns`));
-    rtepts.push(gpxRtept(fLL, "HOLD"));
-  } else if (geo.ending.type === "approach") {
-    const stLL = geo.toLL(geo.ending.stationXY);
-    wpts.push(gpxWpt(stLL, "FINAL", `Approach course ${pad3(profile.ending.course)}°`));
-    rtepts.push(gpxRtept(stLL, "FINAL"));
-  }
-
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="INST Sortie Builder" xmlns="http://www.topografix.com/GPX/1/1">
 ${wpts.join("\n")}
@@ -1446,8 +1591,6 @@ const state = {
   difficulty: "easy",
   turnMode: "right",
   stationMode: "single",
-  fixToFix: false,
-  ending: "hold",
   trainingAreas: ["area1"],
   profiles: [],
   currentIndex: -1,
@@ -1455,8 +1598,31 @@ const state = {
   mapRequestId: 0,
 };
 
+// Difficulty presets: a one-click starting point for the detailed controls below —
+// the instructor can still hand-tune any field afterward, this just sets a sane
+// combination instead of clicking through six controls individually every time.
+const DIFFICULTY_PRESETS = {
+  beginner:     { legs: 3, angle: 30, rounding: "easy",   fixToFix: 0, dmeArc: 0, turn: "right", standard: "faa" },
+  intermediate: { legs: 4, angle: 45, rounding: "medium", fixToFix: 1, dmeArc: 0, turn: "right", standard: "faa" },
+  hard:         { legs: 5, angle: 45, rounding: "hard",   fixToFix: 1, dmeArc: 1, turn: "mixed", standard: "icao" },
+  hardest:      { legs: 6, angle: 60, rounding: "hard",   fixToFix: 2, dmeArc: 2, turn: "mixed", standard: "both" },
+};
+
+function applyDifficultyPreset(level) {
+  const preset = DIFFICULTY_PRESETS[level];
+  if (!preset) return;
+  document.getElementById("numLegs").value = preset.legs;
+  document.getElementById("selAngle").value = preset.angle;
+  document.getElementById("selRounding").value = preset.rounding;
+  document.getElementById("numFixToFix").value = preset.fixToFix;
+  document.getElementById("numDmeArc").value = preset.dmeArc;
+  document.getElementById("selTurn").value = preset.turn;
+  document.getElementById("selStandard").value = preset.standard;
+  state.difficulty = preset.rounding;
+  state.turnMode = preset.turn;
+}
+
 function turnLabel(t) { return t === "right" ? "Right (standard)" : "Left (non-standard)"; }
-function fmtLeg(leg) { return leg.kind === "dme" ? `${leg.value} NM legs` : `${leg.value} min legs`; }
 
 function entryLabel(entry, standard) {
   if (standard === "both") return `${ENTRY_LABEL.faa[entry.key]} <span class="note">(ICAO: ${ENTRY_LABEL.icao[entry.key]})</span>`;
@@ -1517,9 +1683,6 @@ function updateSecondAirportVisibility() {
   document.getElementById("fieldSecondAirport").style.display = state.stationMode === "dual" ? "" : "none";
   updateTrainingAreaVisibility();
 }
-function updateHoldOptionsVisibility() {
-  document.getElementById("fieldTurnMode").style.display = state.ending === "hold" ? "" : "none";
-}
 function updateTrainingAreaVisibility() {
   const depIcao = document.getElementById("selDeparture").value;
   const secondIcao = document.getElementById("selSecond").value;
@@ -1532,12 +1695,13 @@ function readConfig() {
   return {
     departureIcao: document.getElementById("selDeparture").value,
     stationMode: state.stationMode,
-    fixToFix: state.fixToFix,
+    fixToFixCount: Math.max(0, parseInt(document.getElementById("numFixToFix").value, 10) || 0),
+    dmeArcCount: Math.max(0, parseInt(document.getElementById("numDmeArc").value, 10) || 0),
+    holdingLegCount: Math.max(0, parseInt(document.getElementById("numHoldingLegs").value, 10) || 0),
     secondIcao: document.getElementById("selSecond").value,
     legCount: Math.max(2, Math.min(10, parseInt(document.getElementById("numLegs").value, 10) || 4)),
     interceptAngle: parseInt(document.getElementById("selAngle").value, 10),
     difficulty: state.difficulty,
-    ending: state.ending,
     turnMode: state.turnMode,
     trainingAreas: document.getElementById("fieldTrainingArea").style.display !== "none" ? state.trainingAreas : [],
     standard: document.getElementById("selStandard").value,
@@ -1553,26 +1717,27 @@ function legGivenText(L, i) {
     return `<b>Leg ${i + 1} (Fix-to-Fix):</b> FIX ${i + 1} is R${pad3(L.course)}°/${L.dme} DME from ${stLabel}. `
       + `From your current position, compute the direct course and distance to FIX ${i + 1} and fly it.`;
   }
+  if (L.kind === "dmeArc") {
+    return `<b>Leg ${i + 1} (DME Arc):</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
+      + `intercept the <b>R-${pad3(L.course)}</b> radial and track it to <b>${L.dme} DME</b> from ${st.id || st.type}. `
+      + `At ${L.dme} DME, turn <b>${L.turn.toUpperCase()}</b> onto the ${L.dme} DME arc and fly it to intercept <b>R-${pad3(L.exitRadial)}</b> — this is FIX ${i + 1}.`;
+  }
+  if (L.kind === "hold") {
+    return `<b>Leg ${i + 1} (Holding):</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
+      + `intercept course <b>${pad3(L.course)}°</b> and track it to <b>${L.dme} DME</b> from ${st.id || st.type} — this is FIX ${i + 1}. `
+      + `Hold at ${st.id || st.type}, inbound course <b>${pad3(L.inboundCourse)}°</b>, ${L.turn.toUpperCase()} TURNS, 1 min legs.`;
+  }
   return `<b>Leg ${i + 1}:</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
     + `intercept course <b>${pad3(L.course)}°</b> and track it to <b>${L.dme} DME</b> from ${st.id || st.type} — this is FIX ${i + 1}.`;
 }
 
 function endingGivenText(profile) {
-  const e = profile.ending;
-  if (e.type === "hold") {
-    return `<b>Ending — Hold:</b> at FIX ${profile.legs.length}, hold at ${e.navaid.id || e.navaid.type}, `
-      + `inbound course <b>${pad3(e.inboundCourse)}°</b>, ${e.turn.toUpperCase()} TURNS, ${fmtLeg(e.leg)}, maintain ${profile.altitude} ft.`;
-  }
-  if (e.type === "approach") {
-    return `<b>Ending — Approach:</b> from FIX ${profile.legs.length} (${e.bearingFromStation.toFixed(0)}°/${e.distanceNm} NM from ${e.navaid.id}), `
-      + `intercept the final approach course <b>${pad3(e.course)}°</b> (RWY ${e.runway ? e.runway.ils : "-"}) into ${profile.departure.icao}.`;
-  }
   return `<b>Ending:</b> sortie ends at FIX ${profile.legs.length} — report field in sight, rejoin the traffic pattern at ${profile.departure.icao}.`;
 }
 
 function buildScenarioHtml(profile) {
   const rwy = profile.departure.runways && profile.departure.runways[0];
-  let html = `<p>Takeoff ${profile.departure.icao}${rwy ? " RWY " + rwy.id : ""}, climb and maintain ${profile.altitude} ft.</p>`;
+  let html = `<p>Takeoff ${profile.departure.icao}${rwy ? " RWY " + rwy.id : ""}, climb and maintain ${profile.altitude} ft AGL.</p>`;
   profile.legs.forEach((L, i) => (html += `<p>${legGivenText(L, i)}</p>`));
   html += `<p>${endingGivenText(profile)}</p>`;
   return html;
@@ -1581,7 +1746,7 @@ function buildScenarioHtml(profile) {
 function buildSetupHtml(profile) {
   const rows = [
     ["Departure", `${profile.departure.icao} — ${profile.departure.name}${profile.departure.runways && profile.departure.runways[0] ? " (RWY " + profile.departure.runways[0].id + ")" : ""}`],
-    ["Altitude", `${profile.altitude} ft`],
+    ["Altitude", `${profile.altitude} ft AGL`],
     ["Intercept angle used", `${profile.config.interceptAngle}°`],
   ];
   profile.legs.forEach((L, i) => {
@@ -1590,19 +1755,21 @@ function buildSetupHtml(profile) {
     if (L.kind === "fixToFix") {
       rows.push([`Leg ${i + 1} type`, "Fix-to-Fix (direct)"]);
       rows.push([`Leg ${i + 1} FIX definition`, `R${pad3(L.course)}° / ${L.dme} NM from station`]);
+    } else if (L.kind === "dmeArc") {
+      rows.push([`Leg ${i + 1} type`, "DME Arc"]);
+      rows.push([`Leg ${i + 1} entry radial / DME`, `R${pad3(L.course)}° / ${L.dme} NM`]);
+      rows.push([`Leg ${i + 1} arc turn / exit radial`, `${L.turn === "right" ? "Right" : "Left"} / R${pad3(L.exitRadial)}°`]);
+      rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
+    } else if (L.kind === "hold") {
+      rows.push([`Leg ${i + 1} type`, "Holding"]);
+      rows.push([`Leg ${i + 1} course / DME`, `${pad3(L.course)}° / ${L.dme} NM`]);
+      rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
+      rows.push([`Leg ${i + 1} hold inbound / turn`, `${pad3(L.inboundCourse)}° / ${turnLabel(L.turn)}`]);
     } else {
       rows.push([`Leg ${i + 1} course / DME`, `${pad3(L.course)}° / ${L.dme} NM`]);
       rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
     }
   });
-  const e = profile.ending;
-  if (e.type === "hold") {
-    rows.push(["Hold navaid", `${e.navaid.id || e.navaid.type}`]);
-    rows.push(["Hold inbound / turn", `${pad3(e.inboundCourse)}° / ${turnLabel(e.turn)}`]);
-    rows.push(["Hold leg", fmtLeg(e.leg)]);
-  } else if (e.type === "approach") {
-    rows.push(["Final approach course", `${pad3(e.course)}° (RWY ${e.runway ? e.runway.ils : "-"})`]);
-  }
   return `<table>${rows.map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join("")}</table>`;
 }
 
@@ -1612,21 +1779,23 @@ function buildAnswerHtml(profile) {
     if (L.kind === "fixToFix") {
       html += `<div class="result">Leg ${i + 1}: fly direct <b>${pad3(L.directCourse)}°</b> for <b>${L.directDistNm} NM</b></div>`
         + `<p class="note">Direct course/distance computed from your position to FIX ${i + 1} (R${pad3(L.course)}°/${L.dme} DME from station).</p>`;
+    } else if (L.kind === "dmeArc") {
+      html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept R-${pad3(L.course)}, then ${L.turn.toUpperCase()} turn onto the arc</div>`
+        + `<p class="note">Aircraft is on the ${L.side} side of R-${pad3(L.course)} → turn ${L.side === "right" ? "left" : "right"}, ${L.interceptAngle}° off course to intercept. `
+        + `At ${L.dme} DME, turn ${L.turn} and fly the ${L.dme} DME arc (~${L.sweepDeg}° of turn) to R-${pad3(L.exitRadial)}, rolling out on approximately ${pad3(L.headingAtFix)}°.</p>`;
+    } else if (L.kind === "hold") {
+      html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept</div>`
+        + `<p class="note">Aircraft is on the ${L.side} side of course ${pad3(L.course)}° → turn ${L.side === "right" ? "left" : "right"}, `
+        + `${L.interceptAngle}° off course. Once established, track ${pad3(L.course)}° to ${L.dme} DME.</p>`
+        + `<div class="result">Holding entry: ${entryLabel(L.entry, profile.config.standard)}</div>`
+        + `<p class="note">Arrival heading ${pad3(L.course)}° is ${L.entry.delta}° (clockwise) from inbound course ${pad3(L.inboundCourse)}° `
+        + `→ ${L.entry.key} sector for ${L.turn}-hand turns (margin ${L.marginToBoundary.toFixed(0)}°).</p>`;
     } else {
       html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept</div>`
         + `<p class="note">Aircraft is on the ${L.side} side of course ${pad3(L.course)}° → turn ${L.side === "right" ? "left" : "right"}, `
         + `${L.interceptAngle}° off course. Once established, track ${pad3(L.course)}° to ${L.dme} DME.</p>`;
     }
   });
-  const e = profile.ending;
-  if (e.type === "hold") {
-    html += `<div class="result">Holding entry: ${entryLabel(e.entry, profile.config.standard)}</div>`
-      + `<p class="note">Arrival heading ${pad3(e.arrivalHeading)}° is ${e.entry.delta}° (clockwise) from inbound course ${pad3(e.inboundCourse)}° `
-      + `→ ${e.entry.key} sector for ${e.turn}-hand turns (margin ${e.marginToBoundary.toFixed(0)}°).</p>`;
-  } else if (e.type === "approach") {
-    html += `<div class="result">Final intercept: fly <b>${pad3(e.interceptHeading)}°</b></div>`
-      + `<p class="note">Aircraft is on the ${e.side} side of final course ${pad3(e.course)}° → turn ${e.side === "right" ? "left" : "right"}, ${e.interceptAngle}° off course to join final.</p>`;
-  }
   return html;
 }
 
@@ -1691,13 +1860,11 @@ function main() {
     state.stationMode = e.target.checked ? "dual" : "single";
     updateSecondAirportVisibility();
   });
-  document.getElementById("chkFixToFix").addEventListener("change", (e) => (state.fixToFix = e.target.checked));
-  wireChipGroup("chipEnding", (v) => { state.ending = v; updateHoldOptionsVisibility(); });
+  document.getElementById("selDifficultyLevel").addEventListener("change", (e) => applyDifficultyPreset(e.target.value));
   wireMultiChipGroup("chipTrainingArea", (vals) => (state.trainingAreas = vals));
   document.getElementById("selDeparture").addEventListener("change", updateTrainingAreaVisibility);
   document.getElementById("selSecond").addEventListener("change", updateTrainingAreaVisibility);
   updateSecondAirportVisibility();
-  updateHoldOptionsVisibility();
   updateTrainingAreaVisibility();
   wireDetailTabs();
 
