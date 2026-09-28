@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IFR Sortie Builder — GIS</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark">✈</span>
+    <div>
+      <h1>IFR Sortie Builder</h1>
+      <p>Intercept &amp; Holding trainer · real navaid data · KML/GPX export</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="toolbar-actions">
+      <button class="tool-pill" id="btnExportKML" disabled>⤓ KML</button>
+      <button class="tool-pill" id="btnExportGPX" disabled>⤓ GPX</button>
+      <button class="tool-pill" id="btnPrint" disabled>🖶 Print / PDF</button>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar-row">
+  <div class="sortie-tabs" id="sortieTabs"></div>
+</div>
+
+<div class="layout" id="layoutRoot">
+  <aside class="panel" id="controlPanel">
+    <div class="panel-scroll">
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🧭 Route</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Departure airport</label>
+            <select id="selDeparture"></select>
+          </div>
+          <label class="check-row check-row-tight">
+            <input type="checkbox" id="chkTwoStations">
+            <span>Use a second station for legs</span>
+          </label>
+          <div class="field" id="fieldSecondAirport" style="display:none;">
+            <select id="selSecond"></select>
+          </div>
+          <label class="check-row check-row-tight">
+            <input type="checkbox" id="chkFixToFix">
+            <span>Mix in Fix-to-Fix legs (direct course/distance between two fixes)</span>
+          </label>
+          <div class="field" id="fieldTrainingArea" style="display:none;">
+            <label>Training area(s) — tap to add/remove</label>
+            <div class="chip-group chip-sm" id="chipTrainingArea">
+              <div class="chip active" data-val="area1">Area 1</div>
+              <div class="chip" data-val="area2">Area 2</div>
+              <div class="chip" data-val="area3">Area 3</div>
+            </div>
+          </div>
+          <div class="field-row field-row-3">
+            <div class="field">
+              <label>Legs</label>
+              <input type="number" id="numLegs" min="2" max="10" value="4">
+            </div>
+            <div class="field">
+              <label>Angle</label>
+              <select id="selAngle">
+                <option value="30">30°</option>
+                <option value="45" selected>45°</option>
+                <option value="60">60°</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Rounding</label>
+              <select id="selRounding">
+                <option value="easy">30°</option>
+                <option value="medium">10°</option>
+                <option value="hard">1°</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🏁 Ending</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>End the sortie with</label>
+            <div class="chip-group" id="chipEnding">
+              <div class="chip active" data-val="hold">Holding</div>
+              <div class="chip" data-val="approach">Approach</div>
+              <div class="chip" data-val="plain">Just end</div>
+            </div>
+          </div>
+          <div class="field-row" id="fieldTurnMode">
+            <div class="field">
+              <label>Turn</label>
+              <select id="selTurn">
+                <option value="right">Standard (R)</option>
+                <option value="mixed">Random</option>
+                <option value="left">Non-std (L)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Terminology</label>
+              <select id="selStandard">
+                <option value="faa">FAA</option>
+                <option value="icao">ICAO</option>
+                <option value="both">Both</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> ✨ Generate</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Number of sorties</label>
+            <input type="number" id="numCount" min="1" max="10" value="1">
+          </div>
+          <button class="primary" id="btnGenerate">Generate sortie(s)</button>
+          <label class="check-row">
+            <input type="checkbox" id="chkShowAnswers" checked>
+            <span>Include answer key in PDF export</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <button class="sidebar-toggle" id="sidebarToggle" title="Show/hide panel">‹</button>
+
+  <div class="gis-workspace" id="gisWorkspace">
+    <div id="mapArea" class="map-area">
+      <div class="empty-hint" id="mapEmptyHint">No sortie yet — set your options and click <b>Generate sortie(s)</b>.</div>
+      <div id="mainMap"></div>
+    </div>
+
+    <button class="detail-toggle" id="detailToggle" title="Show/hide brief" style="display:none;">›</button>
+
+    <div class="detail-panel" id="detailPanel" style="display:none;">
+      <div class="detail-tabs">
+        <div class="dtab active" data-tab="scenario">Scenario</div>
+        <div class="dtab" data-tab="setup">Setup</div>
+        <div class="dtab" data-tab="answer">Answer key</div>
+      </div>
+      <div class="detail-body" id="detailBody">
+        <div class="dpane" data-pane="scenario" id="paneScenario"></div>
+        <div class="dpane" data-pane="setup" id="paneSetup" style="display:none;"></div>
+        <div class="dpane" data-pane="answer" id="paneAnswer" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="geo.js"></script>
+<script src="engine.js"></script>
+<script src="geometry.js"></script>
+<script src="map.js"></script>
+<script src="export.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
