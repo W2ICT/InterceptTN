@@ -1,0 +1,1747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IFR Sortie Builder — GIS</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+:root {
+  --bg: #10141d;
+  --panel: #171c27;
+  --panel-2: #1f2634;
+  --panel-3: #262f40;
+  --line: #2a3244;
+  --ink: #eef1f6;
+  --muted: #8b96a8;
+  --accent: #d6a13c;
+  --teal: #3ecfab;
+  --danger: #e2564b;
+  --good: #34c98d;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 2px 14px rgba(0, 0, 0, .3);
+  --shadow-lg: 0 12px 34px rgba(0, 0, 0, .45);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14.5px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Friendlier thin scrollbars everywhere in the app */
+.panel-scroll, .detail-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-3) transparent;
+}
+.panel-scroll::-webkit-scrollbar, .detail-body::-webkit-scrollbar { width: 8px; }
+.panel-scroll::-webkit-scrollbar-track, .detail-body::-webkit-scrollbar-track { background: transparent; }
+.panel-scroll::-webkit-scrollbar-thumb, .detail-body::-webkit-scrollbar-thumb {
+  background: var(--panel-3); border-radius: 8px; border: 2px solid var(--panel);
+}
+.panel-scroll::-webkit-scrollbar-thumb:hover, .detail-body::-webkit-scrollbar-thumb:hover { background: #33405a; }
+
+/* ---------------- Header ---------------- */
+header.app-header {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark {
+  font-size: 18px; color: #06251d; background: var(--teal);
+  width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex: none;
+}
+header.app-header h1 { margin: 0; font-size: 15.5px; font-weight: 700; letter-spacing: .1px; color: var(--ink); }
+header.app-header p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.header-actions { display: flex; gap: 8px; }
+.icon-btn {
+  width: 34px; height: 34px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel-2);
+  color: var(--ink); font-size: 15px; cursor: pointer; transition: all .15s ease;
+}
+.icon-btn:hover { border-color: var(--teal); background: var(--panel-3); }
+
+/* ---------------- Toolbar row ---------------- */
+.toolbar-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 10px 18px; background: var(--bg);
+}
+.sortie-tabs { display: flex; gap: 8px; flex-wrap: wrap; min-height: 30px; align-items: center; }
+.sortie-tabs:empty::before { content: "No sorties generated yet"; font-size: 12.5px; color: var(--muted); }
+.sortie-tab {
+  border: 1px solid var(--line); background: var(--panel-2); border-radius: 999px; padding: 7px 16px;
+  font-size: 12.5px; cursor: pointer; font-weight: 600; color: var(--muted); transition: all .15s ease;
+}
+.sortie-tab:hover { border-color: var(--teal); color: var(--ink); }
+.sortie-tab.active { background: var(--teal); color: #06251d; border-color: var(--teal); }
+.toolbar-actions { display: flex; gap: 8px; }
+button.tool-pill {
+  padding: 8px 15px; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 999px; font-size: 12.5px; cursor: pointer; font-weight: 600; transition: all .15s ease;
+}
+button.tool-pill:disabled { opacity: .35; cursor: not-allowed; }
+button.tool-pill:not(:disabled):hover { border-color: var(--teal); color: var(--teal); background: var(--panel-3); }
+
+/* ---------------- Layout ---------------- */
+.layout {
+  display: flex;
+  position: relative;
+  height: calc(100vh - 58px - 51px);
+  padding: 0 12px 12px;
+  gap: 0;
+}
+@media (max-width: 860px) {
+  .layout { height: auto; flex-direction: column; }
+  .sidebar-toggle { display: none; }
+}
+
+/* ---------------- Sidebar ---------------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  width: 300px;
+  flex: 0 0 300px;
+  overflow: hidden;
+  transition: width .2s ease, flex-basis .2s ease, opacity .15s ease;
+}
+.panel-scroll { height: 100%; overflow-y: auto; padding: 6px; }
+.layout.collapsed .panel { width: 0; flex-basis: 0; opacity: 0; pointer-events: none; border: none; }
+
+.sidebar-toggle {
+  flex: 0 0 auto;
+  width: 20px;
+  align-self: center;
+  height: 56px;
+  margin: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  transition: transform .2s ease, color .15s ease;
+}
+.sidebar-toggle:hover { color: var(--teal); border-color: var(--teal); }
+.layout.collapsed .sidebar-toggle { transform: rotate(180deg); }
+
+.side-section {
+  background: var(--panel-2);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.side-section:last-child { margin-bottom: 0; }
+.side-section-head {
+  font-size: 12px; font-weight: 700; color: var(--ink);
+  cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
+  margin: -1px -1px 5px;
+}
+.side-section[data-open="true"] .side-section-head { margin-bottom: 7px; }
+.side-section-head .chev { font-size: 9px; transition: transform .15s ease; color: var(--teal); }
+.side-section[data-open="false"] .chev { transform: rotate(-90deg); }
+.side-section[data-open="false"] .side-section-head { margin-bottom: 0; }
+.side-section[data-open="false"] .side-section-body { display: none; }
+
+.field { margin-bottom: 7px; }
+.field:last-child { margin-bottom: 0; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 7px; }
+.field-row .field { margin-bottom: 0; }
+.field label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 3px; }
+.field select, .field input[type=number] {
+  width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 12.5px;
+  background: var(--panel); color: var(--ink);
+  text-overflow: ellipsis;
+}
+.field select:focus, .field input:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(62, 207, 171, .15); }
+.chip-group { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 5px 11px;
+  font-size: 11.5px; cursor: pointer; user-select: none; color: var(--ink); transition: all .15s ease;
+}
+.chip:hover { border-color: var(--teal); }
+.chip.active { background: var(--teal); color: #06251d; border-color: var(--teal); font-weight: 600; }
+.chip-sm { gap: 4px; }
+.chip-sm .chip { padding: 4px 9px; font-size: 10.5px; }
+.check-row { display: flex; align-items: flex-start; gap: 7px; font-size: 11.5px; color: var(--muted); margin-top: 5px; cursor: pointer; line-height: 1.35; }
+.check-row input { margin-top: 2px; accent-color: var(--teal); }
+.check-row-tight { margin-top: 2px; margin-bottom: 8px; }
+
+button.primary {
+  width: 100%; padding: 10px; background: var(--accent); color: #241700; font-weight: 700;
+  border: none; border-radius: var(--radius-sm); font-size: 13.5px; cursor: pointer; letter-spacing: .1px; margin-bottom: 9px;
+  box-shadow: 0 4px 16px rgba(214, 161, 60, .25); transition: filter .15s ease, transform .1s ease;
+}
+button.primary:hover { filter: brightness(1.07); }
+button.primary:active { transform: translateY(1px); }
+
+/* ---------------- GIS workspace ---------------- */
+.gis-workspace { flex: 1 1 auto; display: flex; flex-direction: row; gap: 0; min-width: 0; margin-left: 8px; min-height: 0; }
+
+.map-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 260px;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+#mainMap { width: 100%; height: 100%; background: var(--bg); }
+.map-area .empty-hint {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 14.5px; text-align: center; padding: 0 40px; z-index: 500; background: var(--panel);
+}
+
+/* Right-hand collapsible brief dock */
+.detail-toggle {
+  flex: 0 0 auto;
+  width: 20px;
+  align-self: center;
+  height: 56px;
+  margin: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  transition: transform .2s ease, color .15s ease;
+}
+.detail-toggle:hover { color: var(--teal); border-color: var(--teal); }
+.gis-workspace.detail-collapsed .detail-toggle { transform: rotate(180deg); }
+
+.detail-panel {
+  flex: 0 0 380px;
+  width: 380px;
+  height: 100%;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: width .2s ease, flex-basis .2s ease, opacity .15s ease;
+}
+.gis-workspace.detail-collapsed .detail-panel { width: 0; flex-basis: 0; opacity: 0; pointer-events: none; border: none; }
+@media (max-width: 860px) {
+  .gis-workspace { flex-direction: column; gap: 10px; }
+  .detail-toggle { display: none; }
+  .detail-panel { width: 100%; flex-basis: auto; max-height: 40%; }
+}
+.detail-tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--line); flex: 0 0 auto; padding: 8px 10px 0; overflow-x: auto; }
+.dtab { padding: 9px 14px; font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; border-radius: 8px 8px 0 0; white-space: nowrap; transition: color .15s ease; }
+.dtab:hover { color: var(--ink); }
+.dtab.active { color: var(--teal); background: var(--panel-2); }
+.detail-body { padding: 16px 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.dpane p { margin: 6px 0; font-size: 13.5px; line-height: 1.65; color: var(--ink); }
+.dpane b { color: #fff; }
+.dpane table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.dpane td { padding: 6px 4px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.dpane td.k { color: var(--muted); width: 40%; }
+.dpane .result { font-weight: 700; color: var(--teal); font-size: 14px; margin: 12px 0 3px; }
+.dpane .note { font-size: 12.5px; color: var(--muted); }
+
+/* Leaflet marker pins */
+.pin { border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px rgba(255,255,255,.6); font-weight: 700; color: #fff; }
+.pin-nav { width: 13px; height: 13px; background: #3b82f6; border-radius: 3px; }
+.pin-fix { width: 22px; height: 22px; background: #1d4f91; font-size: 11.5px; }
+.pin-hold { width: 22px; height: 22px; background: #6b3fa0; font-size: 12px; }
+.pin-dep { width: 24px; height: 24px; background: var(--good); font-size: 13px; }
+.leaflet-tooltip { font-size: 12px; background: rgba(23,28,39,.94); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.leaflet-tooltip::before { display: none; }
+
+/* Map legend */
+.map-legend {
+  background: rgba(23,28,39,.92); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; font-size: 11.5px; color: var(--ink); box-shadow: var(--shadow); line-height: 1.9;
+}
+.lg-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.lg-swatch { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; color: #fff; font-size: 9px; font-weight: 700; }
+.lg-dep { width: 14px; height: 14px; background: var(--good); }
+.lg-nav { width: 10px; height: 10px; background: #3b82f6; border-radius: 3px; }
+.lg-fix { width: 14px; height: 14px; background: #1d4f91; }
+.lg-line { display: inline-block; width: 22px; height: 0; border-top-width: 3px; border-top-style: solid; flex: none; }
+.lg-intercept { border-color: #e0a02c; border-top-style: dashed; }
+.lg-track { border-color: #1d4f91; }
+.lg-area { border-color: #8b96a8; border-top-style: dashed; border-top-width: 1.5px; }
+
+.empty-hint { color: var(--muted); font-size: 14.5px; padding: 40px 10px; text-align: center; line-height: 1.6; }
+
+/* ---------------- Print — two landscape pages: page 1 is the profile view
+   (map + scenario side by side), page 2 is the detail (setup + answer key,
+   full width). detail-panel/detail-body are unwrapped with display:contents
+   so their dpane children lay out directly in .gis-workspace's float flow —
+   otherwise setup/answer would be stuck inside the narrow scenario column. */
+@media print {
+  @page { size: landscape; margin: 9mm; }
+  header.app-header, .panel, .sidebar-toggle, .toolbar-row, .icon-btn, .detail-toggle { display: none !important; }
+  body { background: #fff; color: #000; font-size: 9.5px; }
+  .layout { display: block; padding: 0; height: auto; }
+  .gis-workspace { display: block !important; margin-left: 0 !important; }
+
+  .map-area { float: left; width: 46%; margin-right: 2%; height: 178mm; border: none; page-break-inside: avoid; }
+  .detail-panel, .detail-body { display: contents !important; }
+  .detail-tabs { display: none; }
+  .dpane { display: none !important; }
+
+  .dpane[data-pane="scenario"] {
+    display: block !important; float: right; width: 50%; padding: 2mm 0;
+    font-size: 9.5px; line-height: 1.55;
+  }
+  .dpane[data-pane="setup"], .dpane[data-pane="answer"] {
+    display: block !important; clear: both; width: 100%;
+    column-count: 2; column-gap: 16px; font-size: 9px; line-height: 1.35;
+  }
+  .dpane[data-pane="setup"] { page-break-before: always; padding-top: 2mm; }
+
+  .dpane.print-hide { display: none !important; }
+  .dpane p, .dpane td, .dpane b { color: #000; margin: 3px 0; }
+  .dpane .result { font-size: 9.5px; margin: 6px 0 2px; break-inside: avoid-column; }
+  .dpane .note { font-size: 8px; }
+  .dpane table { font-size: 8.5px; width: 100%; }
+  .dpane td { padding: 2px 3px; }
+}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark">✈</span>
+    <div>
+      <h1>IFR Sortie Builder</h1>
+      <p>Intercept &amp; Holding trainer · real navaid data · KML/GPX export</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <div class="toolbar-actions">
+      <button class="tool-pill" id="btnExportKML" disabled>⤓ KML</button>
+      <button class="tool-pill" id="btnExportGPX" disabled>⤓ GPX</button>
+      <button class="tool-pill" id="btnPrint" disabled>🖶 Print / PDF</button>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar-row">
+  <div class="sortie-tabs" id="sortieTabs"></div>
+</div>
+
+<div class="layout" id="layoutRoot">
+  <aside class="panel" id="controlPanel">
+    <div class="panel-scroll">
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🧭 Route</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Departure airport</label>
+            <select id="selDeparture"></select>
+          </div>
+          <label class="check-row check-row-tight">
+            <input type="checkbox" id="chkTwoStations">
+            <span>Use a second station for legs</span>
+          </label>
+          <div class="field" id="fieldSecondAirport" style="display:none;">
+            <select id="selSecond"></select>
+          </div>
+          <label class="check-row check-row-tight">
+            <input type="checkbox" id="chkFixToFix">
+            <span>Mix in Fix-to-Fix legs (direct course/distance between two fixes)</span>
+          </label>
+          <div class="field" id="fieldTrainingArea" style="display:none;">
+            <label>Training area(s) — tap to add/remove</label>
+            <div class="chip-group chip-sm" id="chipTrainingArea">
+              <div class="chip active" data-val="area1">Area 1</div>
+              <div class="chip" data-val="area2">Area 2</div>
+              <div class="chip" data-val="area3">Area 3</div>
+            </div>
+          </div>
+          <div class="field-row field-row-3">
+            <div class="field">
+              <label>Legs</label>
+              <input type="number" id="numLegs" min="2" max="10" value="4">
+            </div>
+            <div class="field">
+              <label>Angle</label>
+              <select id="selAngle">
+                <option value="30">30°</option>
+                <option value="45" selected>45°</option>
+                <option value="60">60°</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Rounding</label>
+              <select id="selRounding">
+                <option value="easy">30°</option>
+                <option value="medium">10°</option>
+                <option value="hard">1°</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🏁 Ending</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>End the sortie with</label>
+            <div class="chip-group" id="chipEnding">
+              <div class="chip active" data-val="hold">Holding</div>
+              <div class="chip" data-val="approach">Approach</div>
+              <div class="chip" data-val="plain">Just end</div>
+            </div>
+          </div>
+          <div class="field-row" id="fieldTurnMode">
+            <div class="field">
+              <label>Turn</label>
+              <select id="selTurn">
+                <option value="right">Standard (R)</option>
+                <option value="mixed">Random</option>
+                <option value="left">Non-std (L)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Terminology</label>
+              <select id="selStandard">
+                <option value="faa">FAA</option>
+                <option value="icao">ICAO</option>
+                <option value="both">Both</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> ✨ Generate</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Number of sorties</label>
+            <input type="number" id="numCount" min="1" max="10" value="1">
+          </div>
+          <button class="primary" id="btnGenerate">Generate sortie(s)</button>
+          <label class="check-row">
+            <input type="checkbox" id="chkShowAnswers" checked>
+            <span>Include answer key in PDF export</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <button class="sidebar-toggle" id="sidebarToggle" title="Show/hide panel">‹</button>
+
+  <div class="gis-workspace" id="gisWorkspace">
+    <div id="mapArea" class="map-area">
+      <div class="empty-hint" id="mapEmptyHint">No sortie yet — set your options and click <b>Generate sortie(s)</b>.</div>
+      <div id="mainMap"></div>
+    </div>
+
+    <button class="detail-toggle" id="detailToggle" title="Show/hide brief" style="display:none;">›</button>
+
+    <div class="detail-panel" id="detailPanel" style="display:none;">
+      <div class="detail-tabs">
+        <div class="dtab active" data-tab="scenario">Scenario</div>
+        <div class="dtab" data-tab="setup">Setup</div>
+        <div class="dtab" data-tab="answer">Answer key</div>
+      </div>
+      <div class="detail-body" id="detailBody">
+        <div class="dpane" data-pane="scenario" id="paneScenario"></div>
+        <div class="dpane" data-pane="setup" id="paneSetup" style="display:none;"></div>
+        <div class="dpane" data-pane="answer" id="paneAnswer" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+/* ============================================================
+ * config.js — no configuration needed; the app uses Esri's free
+ * satellite basemap (no API key or billing account required).
+ * ============================================================ */
+
+/* ============================================================
+ * data.js — Navaid database, real published data extracted from
+ * the Thailand AIP (CAAT eAIP, aip.caat.or.th, AIRAC cycle
+ * 2024-09-05 for the military fields, various cycles for the
+ * civil fields as indexed). AD 2.19 "RADIO NAVIGATION AND
+ * LANDING AIDS" tables, cross-checked against AD 2.2 ARP
+ * coordinates. Coordinates are stored as the raw AIP string
+ * (DMS) plus a parsed decimal value for schematic plotting.
+ * This is a TRAINING tool — diagrams are schematic, not to
+ * scale for real navigation. Always verify against the current
+ * AIP / NOTAMs before real-world use.
+ * ============================================================ */
+
+// Parse a coordinate token like "184617N", "135451.74N", "1846.2N" (lat)
+// or "0985746E", "1003620.49E", "9858.2E" (lon) into decimal degrees.
+function parseCoord(token) {
+  const hemi = token.slice(-1);
+  const digits = token.slice(0, -1);
+  const sign = (hemi === "S" || hemi === "W") ? -1 : 1;
+  const isLat = (hemi === "N" || hemi === "S");
+  const intLen = isLat ? 2 : 3; // degrees digits before minutes
+  const degStr = digits.slice(0, intLen);
+  const rest = digits.slice(intLen);
+  let deg = parseFloat(degStr || "0");
+  let minutes = 0;
+  if (rest.length <= 2) {
+    // DD MM (no seconds) e.g. leftover "46" -> minutes only, rare
+    minutes = parseFloat(rest || "0");
+  } else if (rest.indexOf(".") !== -1 && rest.indexOf(".") <= 2) {
+    // DD MM.m form e.g. "46.2" -> minutes.minutes
+    minutes = parseFloat(rest);
+  } else {
+    // DD MM SS(.ss) form e.g. "1738" or "1738.35"
+    const mm = rest.slice(0, 2);
+    const ss = rest.slice(2);
+    minutes = parseFloat(mm || "0") + parseFloat(ss || "0") / 60;
+  }
+  return sign * (deg + minutes / 60);
+}
+
+function coord(latToken, lonToken) {
+  return {
+    raw: `${latToken} ${lonToken}`,
+    lat: parseCoord(latToken),
+    lon: parseCoord(lonToken),
+  };
+}
+
+// AIRPORTS = { ICAO: { name, arp, navaids: [...] , reportingPoints: [...] } }
+const AIRPORTS = {
+  VTBD: {
+    icao: "VTBD",
+    name: "Bangkok / Don Mueang International Airport",
+    nameTh: "ดอนเมือง",
+    arp: coord("135451.74N", "1003620.49E"),
+    runways: [{ id: "03L/21R", hdgs: [29, 209], ils: "21R" }],
+    navaids: [
+      { type: "VOR/DME", id: "BKK", freq: "117.7 MHz", chan: "CH124X", pos: coord("135336.8N", "1003546.3E"), remarks: "DVOR/DME — restrictions apply beyond 40NM on several radials (mountainous/obstacle shielding), see AIP." },
+      { type: "ILS/LOC", id: "IBKK", freq: "109.3 MHz", chan: null, pos: coord("135340.6N", "1003540.6E"), remarks: "ILS CAT II, RWY 21R" },
+      { type: "ILS/LOC", id: "IDMG", freq: "110.3 MHz", chan: null, pos: coord("135351.83N", "1003601.85E"), remarks: "ILS CAT I, RWY 21L" },
+      { type: "ILS/LOC", id: "IBKD", freq: "109.7 MHz", chan: "CH34X", pos: coord("135543.71N", "1003649.60E"), remarks: "ILS CAT I, RWY 03L" },
+    ],
+    reportingPoints: [],
+  },
+  VTCC: {
+    icao: "VTCC",
+    name: "Chiang Mai International Airport",
+    nameTh: "เชียงใหม่",
+    arp: coord("184617N", "0985746E"),
+    runways: [{ id: "18/36", hdgs: [180, 360], ils: "36" }],
+    navaids: [
+      { type: "VOR/DME", id: "CMA", freq: "116.9 MHz", chan: "CH116X", pos: coord("184558.06N", "0985740.38E"), remarks: "DVOR/DME — restricted signal beyond 20-40NM various radials/altitudes, mountainous terrain." },
+      { type: "ILS/LOC", id: "ICMA", freq: "109.9 MHz", chan: "CH36X", pos: coord("184707.42N", "0985746.56E"), remarks: "ILS CAT I, RWY 36" },
+      { type: "TACAN", id: "CHM", freq: null, chan: "CH109", pos: coord("184602N", "0985812E"), remarks: "PN to ATC" },
+    ],
+    reportingPoints: [
+      { name: "MAE RIM", radial: 354, dme: 9.0 },
+      { name: "MAE JO", radial: 21, dme: 8.1 },
+      { name: "PA LAN", radial: 39, dme: 8.3 },
+      { name: "SAN NA MENG", radial: 55, dme: 6.4 },
+      { name: "SAN KLANG", radial: 88, dme: 5.2 },
+      { name: "BO SANG", radial: 92, dme: 6.8 },
+      { name: "TOT", radial: 131, dme: 6.7 },
+      { name: "DOI TI", radial: 159, dme: 13.9 },
+      { name: "TON TONG", radial: 185, dme: 13.6 },
+      { name: "THA WANG PRAO", radial: 203, dme: 15.1 },
+      { name: "NAM PRAE", radial: 228, dme: 6.8 },
+      { name: "ROYAL FLORA", radial: 242, dme: 2.3 },
+    ],
+  },
+  VTUU: {
+    icao: "VTUU",
+    name: "Ubon Ratchathani Airport",
+    nameTh: "อุบลราชธานี",
+    arp: coord("151504.59N", "1045212.82E"),
+    runways: [{ id: "05/23", hdgs: [50, 230], ils: "23" }],
+    navaids: [
+      { type: "NDB", id: "UB", freq: "373 kHz", chan: null, pos: coord("151425.83N", "1045148.77E"), remarks: null },
+      { type: "VOR/DME", id: "UBL", freq: "112.7 MHz", chan: "CH74", pos: coord("151442.71N", "1045157.30E"), remarks: "DVOR/DME" },
+      { type: "ILS/LOC", id: "IUBL", freq: "110.1 MHz", chan: "CH38", pos: coord("151423.85N", "1045120.10E"), remarks: "ILS CAT I, RWY 23" },
+      { type: "TACAN", id: "UBL", freq: "114.6 MHz", chan: "CH93", pos: coord("151544.79N", "1045300.00E"), remarks: null },
+    ],
+    reportingPoints: [],
+  },
+  VTPP: {
+    icao: "VTPP",
+    name: "Phitsanulok Airport",
+    nameTh: "พิษณุโลก",
+    arp: coord("164658.56N", "1001644.85E"),
+    runways: [{ id: "14/32", hdgs: [140, 320], ils: "32" }],
+    navaids: [
+      { type: "NDB", id: "PLT", freq: "263 kHz", chan: null, pos: coord("164745.44N", "1001632.62E"), remarks: null },
+      { type: "VOR/DME", id: "PSL", freq: "114.1 MHz", chan: "CH88X", pos: coord("164613.34N", "1001728.70E"), remarks: "DVOR/DME — restriction, mountainous terrain." },
+      { type: "ILS/LOC", id: "IPL", freq: "110.1 MHz", chan: null, pos: coord("164746.19N", "1001608.82E"), remarks: "ILS CAT I, RWY 32" },
+      { type: "TACAN", id: null, freq: null, chan: "CH99", pos: coord("164736N", "1001642E"), remarks: "Military facility, on request" },
+    ],
+    reportingPoints: [],
+  },
+  VTBL: {
+    icao: "VTBL",
+    name: "Lop Buri / Khok Kathiam (Wing 2, RTAF)",
+    nameTh: "ลพบุรี / โคกกระเทียม",
+    arp: coord("145228.7N", "1003948.2E"),
+    runways: [
+      { id: "16/34", hdgs: [160, 340], ils: null },
+      { id: "05/23", hdgs: [50, 230], ils: "05" },
+    ],
+    // Local flying training area (พท.การฝึก บน.2), radial/DME from the LB NDB
+    // (treated as CTR). Cross-checked against the unit's own boundary KML
+    // (ผนวก ก / รปป.บน.๒-๐๗-๐๐๔ — VT D2 GND-6,000ft / VT P4 GND-FL240 / TRA 2 GND-5,000ft).
+    // VTP4 (small notch NE of A8/A9/A7) is a neighbouring unit's restricted zone
+    // (CHNDY1-4 rectangle) and is intentionally left out of our own training area.
+    trainingArea: {
+      refNavaidId: "LB",
+      points: {
+        A1: { radial: 230, dme: 24.0 },
+        A2: { radial: 243, dme: 33.5 },
+        A3: { radial: 271, dme: 29.0 },
+        A4: { radial: 165, dme: 16.3 },
+        A5: { radial: 123, dme: 29.6 },
+        A6: { radial: 95, dme: 25.1 },
+        A7: { radial: 85, dme: 25.1 },
+        A8: { radial: 77, dme: 10.4 },
+        A9: { radial: 36, dme: 17.5 },
+        A10: { radial: 321, dme: 18.9 },
+        A11: { radial: 298, dme: 32.0 },
+      },
+      boundary: ["A11", "A10", "A9", "A8", "A7", "A6", "A5", "A4", "A1", "A2", "A3", "A11"],
+      areas: {
+        area1: ["A3", "A2", "A1", "CTR"],
+        area2: ["CTR", "A1", "A4"],
+        area3: ["CTR", "A4", "A5", "A6"],
+        area4: ["A3", "A11", "A10", "A9", "A8", "A7", "A6"],
+      },
+    },
+    navaids: [
+      { type: "NDB", id: "LB", freq: "280 kHz", chan: null, pos: coord("145236.27N", "1003926.45E"), remarks: null },
+      { type: "TACAN", id: "LOB", freq: null, chan: "CH115X", pos: coord("145234.33N", "1003935.49E"), remarks: "EXC SAT-SUN and public holiday, or on request" },
+      { type: "ILS/LOC", id: "ILOB", freq: "108.3 MHz", chan: null, pos: coord("145246.56N", "1004007.78E"), remarks: "ILS CAT I, RWY 05" },
+    ],
+    reportingPoints: [
+      { name: "BRAVO", radial: 324, dme: 12.12, refNavaid: "LB NDB" },
+      { name: "KILO", bearing: 290, dme: 4.3, refNavaid: "LB NDB" },
+      { name: "PAPA", bearing: 142, dme: 11.8, refNavaid: "LB NDB" },
+      { name: "LIMA", bearing: 200, dme: 4.8, refNavaid: "LB NDB" },
+    ],
+  },
+  VTPI: {
+    icao: "VTPI",
+    name: "Nakhon Sawan / Takhli (Wing 4, RTAF)",
+    nameTh: "นครสวรรค์ / ตาคลี",
+    arp: coord("151638.35N", "1001745.10E"),
+    runways: [{ id: "18/36", hdgs: [181, 1], ils: "18" }],
+    navaids: [
+      { type: "NDB", id: "TL", freq: "350 kHz", chan: null, pos: coord("151633.45N", "1001751.11E"), remarks: "Military use / civil aircraft used in military services only" },
+      { type: "TACAN", id: "TKL", freq: null, chan: "CH95X", pos: coord("151629.13N", "1001756.62E"), remarks: null },
+      { type: "ILS/LOC", id: "ITKL", freq: "108.7 MHz", chan: null, pos: coord("151539.28N", "1001743.75E"), remarks: "ILS CAT I, RWY 18" },
+    ],
+    reportingPoints: [],
+  },
+  VTUN: {
+    icao: "VTUN",
+    name: "Nakhon Ratchasima / Korat (Wing 1, RTAF)",
+    nameTh: "นครราชสีมา / โคราช",
+    arp: coord("145604N", "1020444E"),
+    runways: [{ id: "06/24", hdgs: [63, 243], ils: "24" }],
+    navaids: [
+      { type: "TACAN", id: "KRT", freq: null, chan: "CH125X", pos: coord("145606.0N", "1020421.8E"), remarks: null },
+      { type: "VOR/DME", id: "KRT", freq: "113.7 MHz", chan: "CH84X", pos: coord("145502.35N", "1020823.32E"), remarks: "DVOR/DME — restriction, mountainous terrain." },
+      { type: "ILS/LOC", id: "IKRT", freq: "109.9 MHz", chan: "CH36X", pos: coord("145535.31N", "1020346.04E"), remarks: "ILS CAT I, RWY 24" },
+    ],
+    reportingPoints: [
+      { name: "NOVEMBER", radial: 355, dme: 8, refNavaid: "KRT TACAN" },
+      { name: "SIERRA", radial: 180, dme: 10, refNavaid: "KRT TACAN" },
+    ],
+  },
+  VTBK: {
+    icao: "VTBK",
+    name: "Nakhon Pathom / Kamphaeng Saen (Flying Training School, RTAF)",
+    nameTh: "นครปฐม / กำแพงแสน",
+    arp: coord("140607.23N", "0995502.13E"),
+    runways: [{ id: "03/21", hdgs: [30, 210], ils: "21" }],
+    navaids: [
+      { type: "VOR/DME", id: "KPS", freq: "114.5 MHz", chan: "CH92X", pos: coord("140956.71N", "0995715.52E"), remarks: "Operation MON-FRI except public holiday" },
+      { type: "NDB", id: "KPS", freq: "251 kHz", chan: null, pos: coord("141013.24N", "0995724.71E"), remarks: null },
+      { type: "ILS/LOC", id: "IKPS", freq: "109.9 MHz", chan: "CH36X", pos: coord("140519.82N", "0995434.59E"), remarks: "ILS CAT I, RWY 21" },
+      { type: "TACAN", id: "KPS", freq: null, chan: "CH98X", pos: coord("140600.82N", "0995443.77E"), remarks: null },
+    ],
+    reportingPoints: [],
+  },
+};
+
+// Explicit display/default order (not object insertion order): VTBL is the
+// default departure field, matching this program's primary training base.
+const AIRPORT_LIST = ["VTBL", "VTPI", "VTPP", "VTCC", "VTUN", "VTUU", "VTBK", "VTBD"];
+
+/* ============================================================
+ * geo.js — Simple flat-earth geo helpers, accurate enough at
+ * regional (<200NM) scale for a schematic training diagram.
+ * Not for real navigation.
+ * ============================================================ */
+
+const NM_PER_DEG_LAT = 60;
+
+function destPoint(latlon, bearingDeg, distNm) {
+  const rad = (bearingDeg * Math.PI) / 180;
+  const dLat = (distNm / NM_PER_DEG_LAT) * Math.cos(rad);
+  const latRad = (latlon.lat * Math.PI) / 180;
+  const dLon = (distNm / NM_PER_DEG_LAT) * Math.sin(rad) / Math.cos(latRad);
+  return { lat: latlon.lat + dLat, lon: latlon.lon + dLon };
+}
+
+// Inverse of the local flat-earth NM projection used by geometry.js: turns a local
+// {x: eastNm, y: northNm} point back into real lat/lon.
+function fromNM(origin, pt) {
+  const originLatRad = (origin.lat * Math.PI) / 180;
+  return {
+    lat: origin.lat + pt.y / NM_PER_DEG_LAT,
+    lon: origin.lon + pt.x / (NM_PER_DEG_LAT * Math.cos(originLatRad)),
+  };
+}
+
+// Ray-casting point-in-polygon test. `pt` is {lat,lon}, `poly` an array of {lat,lon}
+// (need not be explicitly closed — first/last point repeating is fine either way).
+function pointInPolygon(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].lon, yi = poly[i].lat;
+    const xj = poly[j].lon, yj = poly[j].lat;
+    const intersect = (yi > pt.lat) !== (yj > pt.lat) &&
+      pt.lon < ((xj - xi) * (pt.lat - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Where a course flown from `fromPos` on heading `fromHeading` first crosses the
+// radial/course `throughHeading` drawn through `throughPos`. Used to find the actual
+// intercept point of a leg, e.g. to check it doesn't leave a training-area boundary.
+// Local flat-earth plane anchored at fromPos (accurate enough at this scale).
+function intersectCourses(fromPos, fromHeading, throughPos, throughHeading) {
+  const originLatRad = (fromPos.lat * Math.PI) / 180;
+  const bx = (throughPos.lon - fromPos.lon) * NM_PER_DEG_LAT * Math.cos(originLatRad);
+  const by = (throughPos.lat - fromPos.lat) * NM_PER_DEG_LAT;
+  const dr = (fromHeading * Math.PI) / 180, ar = (throughHeading * Math.PI) / 180;
+  const dx = Math.sin(dr), dy = Math.cos(dr);
+  const adx = Math.sin(ar), ady = Math.cos(ar);
+  const denom = dx * -ady - dy * -adx;
+  if (Math.abs(denom) < 1e-9) return null;
+  const t = (bx * -ady - by * -adx) / denom;
+  if (t < 0) return null;
+  const x = dx * t, y = dy * t;
+  return { lat: fromPos.lat + y / NM_PER_DEG_LAT, lon: fromPos.lon + x / (NM_PER_DEG_LAT * Math.cos(originLatRad)) };
+}
+
+function bearingDistance(from, to) {
+  const dLat = to.lat - from.lat;
+  const avgLatRad = ((from.lat + to.lat) / 2 * Math.PI) / 180;
+  const dLon = to.lon - from.lon;
+  const yNm = dLat * NM_PER_DEG_LAT;
+  const xNm = dLon * NM_PER_DEG_LAT * Math.cos(avgLatRad);
+  const distNm = Math.sqrt(xNm * xNm + yNm * yNm);
+  let bearing = (Math.atan2(xNm, yNm) * 180) / Math.PI;
+  if (bearing < 0) bearing += 360;
+  return { bearing, distNm };
+}
+
+/* ============================================================
+ * engine.js — Core generation engine: holding-entry
+ * classification + flight-profile (sortie) builder.
+ * ============================================================ */
+
+function norm360(x) {
+  return ((x % 360) + 360) % 360;
+}
+function rand(min, max) {
+  return Math.random() * (max - min) + min;
+}
+function randInt(min, max) {
+  return Math.floor(rand(min, max + 1));
+}
+function pick(arr) {
+  return arr[randInt(0, arr.length - 1)];
+}
+function roundTo(v, step) {
+  return Math.round(v / step) * step;
+}
+
+/**
+ * Classify a holding-pattern entry.
+ * inboundCourse: published inbound course (deg, the course flown TOWARD the fix)
+ * arrivalHeading: heading/track the aircraft is flying as it approaches the fix
+ * turn: "right" (standard) | "left" (non-standard)
+ * Returns { key: 'direct'|'teardrop'|'parallel', delta }
+ *
+ * Verified against the sector construction in ICAO Doc 8168 Vol I §6
+ * (Direct 180°, Teardrop/Offset 70°, Parallel 110°) and cross-checked
+ * numerically against a reference implementation (holdingentrycalculator.com).
+ */
+function classifyEntry(inboundCourse, arrivalHeading, turn) {
+  const delta = norm360(arrivalHeading - inboundCourse);
+  let key;
+  if (turn === "right") {
+    if (delta >= 290 || delta < 110) key = "direct";
+    else if (delta < 180) key = "teardrop";
+    else key = "parallel";
+  } else {
+    if (delta < 70 || delta >= 250) key = "direct";
+    else if (delta <= 180) key = "parallel";
+    else key = "teardrop";
+  }
+  return { key, delta };
+}
+
+const ENTRY_LABEL = {
+  icao: { direct: "Sector 3 — Direct entry", teardrop: "Sector 2 — Offset entry", parallel: "Sector 1 — Parallel entry" },
+  faa: { direct: "Direct entry", teardrop: "Teardrop entry", parallel: "Parallel entry" },
+};
+
+function entryDistanceToBoundary(delta, turn) {
+  const bounds = turn === "right" ? [110, 180, 290, 360, 0] : [70, 180, 250, 360, 0];
+  let min = 360;
+  for (const b of bounds) {
+    let d = Math.abs(delta - b);
+    d = Math.min(d, 360 - d);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/** Given where the aircraft is (bearing/distance from a station) and the course
+ * it must join, work out which side it's on and the heading to intercept it. */
+function solveIntercept(bearingFromStation, establishedCourse, interceptAngle) {
+  const delta = norm360(bearingFromStation - establishedCourse);
+  const side = delta > 0 && delta < 180 ? "right" : "left";
+  const interceptHeading = norm360(side === "right" ? establishedCourse - interceptAngle : establishedCourse + interceptAngle);
+  return { side, interceptHeading, delta };
+}
+
+function navaidsUsableAsFix(airport) {
+  const list = airport.navaids.filter((n) => n.type === "NDB" || n.type === "VOR/DME" || n.type === "TACAN");
+  return list.length ? list : airport.navaids;
+}
+
+function runwayIlsCourse(rw) {
+  const parts = rw.id.split("/");
+  const idx = parts.indexOf(rw.ils);
+  return rw.hdgs[idx];
+}
+
+/** Resolve an airport's briefed training-area boundary/areas into real lat/lon
+ * polygons (radial/DME are given relative to a named reference navaid, "CTR"). */
+function computeTrainingAreaPolygons(airport) {
+  const ta = airport.trainingArea;
+  if (!ta) return null;
+  const station = airport.navaids.find((n) => n.id === ta.refNavaidId);
+  if (!station) return null;
+  const pts = { CTR: station.pos };
+  Object.keys(ta.points).forEach((k) => {
+    const p = ta.points[k];
+    pts[k] = destPoint(station.pos, p.radial, p.dme);
+  });
+  const areas = {};
+  Object.keys(ta.areas).forEach((k) => { areas[k] = ta.areas[k].map((name) => pts[name]); });
+  const boundary = ta.boundary.map((name) => pts[name]);
+  return { refStation: station, points: pts, areas, boundary };
+}
+
+/** Uniformly-ish sample a lat/lon point inside one of the given polygons
+ * (rejection sampling against each polygon's bounding box). */
+function samplePointInPolygons(polys) {
+  for (let tries = 0; tries < 400; tries++) {
+    const poly = pick(polys);
+    const lats = poly.map((p) => p.lat), lons = poly.map((p) => p.lon);
+    const cand = { lat: rand(Math.min(...lats), Math.max(...lats)), lon: rand(Math.min(...lons), Math.max(...lons)) };
+    if (pointInPolygon(cand, poly)) return cand;
+  }
+  return null;
+}
+
+/* ---------------- Flight-profile (sortie) generator ---------------- */
+
+function generateFlightProfile(config) {
+  const dep = AIRPORTS[config.departureIcao];
+  const pool = [];
+  navaidsUsableAsFix(dep).forEach((n) => pool.push({ airport: dep, navaid: n }));
+  if (config.stationMode === "dual" && config.secondIcao && AIRPORTS[config.secondIcao]) {
+    const second = AIRPORTS[config.secondIcao];
+    navaidsUsableAsFix(second).forEach((n) => pool.push({ airport: second, navaid: n }));
+  }
+
+  const courseStep = config.difficulty === "easy" ? 30 : config.difficulty === "medium" ? 10 : 1;
+  const interceptAngle = config.interceptAngle || 45;
+
+  let currentPos = { lat: dep.arp.lat, lon: dep.arp.lon };
+  const legs = [];
+  for (let i = 0; i < config.legCount; i++) {
+    const ref = pick(pool);
+    const station = ref.navaid;
+    // Fix-to-Fix legs are point-to-point (compute direct course/distance between two
+    // fixes) instead of intercepting a radial off the station and tracking it outbound.
+    const isFixToFix = !!config.fixToFix && Math.random() < 0.5;
+
+    // If this station's airport has a briefed training area and the instructor
+    // picked which sub-area(s) to use, sample the fix from inside those areas
+    // instead of a fully random radial/DME.
+    let course, dme, fixPos;
+    const taPolys = computeTrainingAreaPolygons(ref.airport);
+    if (taPolys && config.trainingAreas && config.trainingAreas.length) {
+      const selectedPolys = config.trainingAreas.map((k) => taPolys.areas[k]).filter(Boolean);
+      // Sampling only constrains the FIX (leg endpoint) to be inside the area — the
+      // intercept turn (or, for fix-to-fix, the direct leg itself) leading up to it
+      // could still swing outside the boundary before reaching it. Retry candidates
+      // until the whole leg checks out inside the overall boundary, so the sortie
+      // never strays out.
+      for (let tries = 0; tries < 40 && course === undefined; tries++) {
+        const point = selectedPolys.length ? samplePointInPolygons(selectedPolys) : null;
+        if (!point) break;
+        const bd = bearingDistance(station.pos, point);
+        const cCourse = Math.round(bd.bearing);
+        const cDme = Math.round(bd.distNm * 10) / 10;
+        const cFixPos = destPoint(station.pos, cCourse, cDme);
+        let ok;
+        if (isFixToFix) {
+          const mid = { lat: (currentPos.lat + cFixPos.lat) / 2, lon: (currentPos.lon + cFixPos.lon) / 2 };
+          ok = pointInPolygon(cFixPos, taPolys.boundary) && pointInPolygon(mid, taPolys.boundary);
+        } else {
+          const curBearing = bearingDistance(station.pos, currentPos).bearing;
+          const cInterceptHeading = solveIntercept(curBearing, cCourse, interceptAngle).interceptHeading;
+          const interceptPt = intersectCourses(currentPos, cInterceptHeading, station.pos, cCourse);
+          ok = interceptPt && pointInPolygon(interceptPt, taPolys.boundary) && pointInPolygon(cFixPos, taPolys.boundary);
+        }
+        if (ok) { course = cCourse; dme = cDme; fixPos = cFixPos; }
+      }
+    }
+    if (course === undefined) {
+      course = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
+      dme = roundTo(rand(6, 25), 1);
+      fixPos = destPoint(station.pos, course, dme);
+    }
+
+    if (isFixToFix) {
+      const { bearing: directCourse, distNm: directDistNm } = bearingDistance(currentPos, fixPos);
+      legs.push({
+        index: i + 1,
+        kind: "fixToFix",
+        stationAirport: ref.airport,
+        station,
+        course,
+        dme,
+        fromPos: currentPos,
+        directCourse: Math.round(directCourse),
+        directDistNm: Math.round(directDistNm * 10) / 10,
+        fixPos,
+        headingAtFix: Math.round(directCourse),
+      });
+    } else {
+      // bearingFromStation = the radial the aircraft is currently on, i.e. bearing FROM
+      // the station TO the aircraft's current position (not the reciprocal).
+      const { bearing, distNm } = bearingDistance(station.pos, currentPos);
+      const { side, interceptHeading } = solveIntercept(bearing, course, interceptAngle);
+      legs.push({
+        index: i + 1,
+        kind: "intercept",
+        stationAirport: ref.airport,
+        station,
+        course,
+        dme,
+        fromPos: currentPos,
+        bearingFromStation: Math.round(bearing * 10) / 10,
+        distanceNm: Math.round(distNm * 10) / 10,
+        side,
+        interceptAngle,
+        interceptHeading: Math.round(interceptHeading),
+        fixPos,
+        headingAtFix: course,
+      });
+    }
+    currentPos = fixPos;
+  }
+
+  const lastCourse = legs[legs.length - 1].headingAtFix;
+  let ending;
+  if (config.ending === "hold") {
+    const inboundCourse = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
+    const turn = config.turnMode === "mixed" ? pick(["right", "right", "right", "left"]) : config.turnMode;
+    const entry = classifyEntry(inboundCourse, lastCourse, turn);
+    const legIsDme = legs[legs.length - 1].station.type === "VOR/DME" || legs[legs.length - 1].station.type === "TACAN";
+    const holdLeg = legIsDme && Math.random() < 0.5 ? { kind: "dme", value: roundTo(rand(4, 12), 0.5) } : { kind: "time", value: pick([1, 1, 1.5]) };
+    ending = {
+      type: "hold",
+      navaid: legs[legs.length - 1].station,
+      atPos: currentPos,
+      inboundCourse,
+      turn,
+      arrivalHeading: lastCourse,
+      entry,
+      leg: holdLeg,
+      marginToBoundary: entryDistanceToBoundary(norm360(lastCourse - inboundCourse), turn),
+    };
+  } else if (config.ending === "approach") {
+    const rw = (dep.runways || []).find((r) => r.ils) || (dep.runways || [])[0];
+    const finalCourse = rw ? runwayIlsCourse(rw) : lastCourse;
+    const locNavaid = dep.navaids.find((n) => n.type === "ILS/LOC") || dep.navaids[0];
+    const { bearing, distNm } = bearingDistance(locNavaid.pos, currentPos);
+    const { side, interceptHeading } = solveIntercept(bearing, finalCourse, interceptAngle);
+    ending = {
+      type: "approach",
+      navaid: locNavaid,
+      runway: rw,
+      course: finalCourse,
+      fromPos: currentPos,
+      bearingFromStation: Math.round(bearing * 10) / 10,
+      distanceNm: Math.round(distNm * 10) / 10,
+      side,
+      interceptAngle,
+      interceptHeading: Math.round(interceptHeading),
+    };
+  } else {
+    ending = { type: "plain", atPos: currentPos };
+  }
+
+  const altitude = roundTo(randInt(20, 90) * 100, 500);
+
+  return { departure: dep, legs, ending, altitude, config, id: 0 };
+}
+
+function generateProfiles(config, count) {
+  const list = [];
+  for (let i = 0; i < count; i++) {
+    const p = generateFlightProfile(config);
+    p.id = i + 1;
+    list.push(p);
+  }
+  return list;
+}
+
+/* ============================================================
+ * geometry.js — Pure geometry for a flight profile, NO
+ * rendering here. Everything is computed in a local flat-earth
+ * NM plane (x = east, y = north, real nautical miles) anchored
+ * at the departure airport, then callers convert points to
+ * lat/lon (fromNM, for the map / KML / GPX) as needed. This is
+ * the single source of truth shared by map.js and export.js so
+ * the picture on the map always matches the coordinates in the
+ * exported files.
+ * ============================================================ */
+
+function polarNM(origin, bearingDeg, dist) {
+  const r = (bearingDeg * Math.PI) / 180;
+  return { x: origin.x + dist * Math.sin(r), y: origin.y + dist * Math.cos(r) };
+}
+function arcPointsNM(center, radius, startBearing, sweepSigned, steps) {
+  steps = steps || 24;
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    pts.push(polarNM(center, startBearing + sweepSigned * t, radius));
+  }
+  return pts;
+}
+function lineIntersect(p, dirDeg, a, aDirDeg) {
+  const dr = (dirDeg * Math.PI) / 180, ar = (aDirDeg * Math.PI) / 180;
+  const d = { x: Math.sin(dr), y: Math.cos(dr) };
+  const ad = { x: Math.sin(ar), y: Math.cos(ar) };
+  const denom = d.x * -ad.y - d.y * -ad.x;
+  if (Math.abs(denom) < 1e-9) return null;
+  const rhsX = a.x - p.x, rhsY = a.y - p.y;
+  const t = (rhsX * -ad.y - rhsY * -ad.x) / denom;
+  if (t < 0) return null;
+  return { x: p.x + d.x * t, y: p.y + d.y * t };
+}
+
+// Assumed holding airspeed for time-based legs and turn radius — this is a
+// helicopter/training-aircraft tool, holding speed is briefed around 80-100 KIAS,
+// so 90 KIAS (the midpoint) stands in since no real airspeed is modelled elsewhere.
+const HOLD_IAS_KT = 90;
+
+/** Racetrack (holding pattern) outline + entry-maneuver kink, in NM-plane,
+ * anchored at `atNM` (the fix). The outbound leg is drawn to scale from the
+ * actual briefed leg (DME leg: that many NM; time leg: minutes converted via
+ * HOLD_IAS_KT). Turn radius comes from a standard-rate (3°/sec, 2 min/360°)
+ * turn at HOLD_IAS_KT — r(NM) = V(kt) / 188.5 — instead of the departure's
+ * outbound leg length, since radius only depends on speed and turn rate. */
+function computeRacetrackXY(atNM, ending) {
+  const IC = ending.inboundCourse;
+  const O = norm360(IC + 180);
+  const turn = ending.turn;
+  const turnSide = turn === "right" ? 90 : -90;
+  const sweep = turn === "right" ? 180 : -180;
+  const L = ending.leg.kind === "dme" ? ending.leg.value : ending.leg.value * (HOLD_IAS_KT / 60);
+  const r = HOLD_IAS_KT / 188.5;
+
+  const F = atNM;
+  const A = polarNM(F, O, L);
+  const C1 = polarNM(F, IC + turnSide, r);
+  const F2 = { x: 2 * C1.x - F.x, y: 2 * C1.y - F.y };
+  const B = polarNM(F2, O, L);
+  const C2 = polarNM(B, O + turnSide, r);
+  const arc1 = arcPointsNM(C1, r, norm360(IC + turnSide + 180), sweep);
+  const arc2 = arcPointsNM(C2, r, norm360(O + turnSide + 180), sweep);
+  const loop = [A, ...arc1, B, ...arc2.slice(1)];
+
+  let kink = null;
+  if (ending.entry.key === "teardrop") {
+    const tdHeading = norm360(O - (turn === "right" ? 30 : -30));
+    const P1 = polarNM(F, tdHeading, L * 0.5);
+    kink = [F, P1, F];
+  } else if (ending.entry.key === "parallel") {
+    const P1 = polarNM(F, O, L * 0.5);
+    const Cp = polarNM(P1, O + turnSide, r * 0.8);
+    const arcP = arcPointsNM(Cp, r * 0.8, norm360(O + turnSide + 180), turn === "right" ? 210 : -210, 20);
+    kink = [F, P1, ...arcP, F];
+  }
+  return { F, A, B, loop, kink };
+}
+
+/**
+ * Compute every point of a flight profile in the local NM plane.
+ * Returns { origin, toNM, toLL, depXY, legs:[{leg, stationXY, fixXY, fromXY, interceptXY}], ending }
+ */
+function computeProfileGeometry(profile) {
+  const origin = profile.departure.arp;
+  const originLatRad = (origin.lat * Math.PI) / 180;
+  const toNM = (latlon) => ({
+    x: (latlon.lon - origin.lon) * 60 * Math.cos(originLatRad),
+    y: (latlon.lat - origin.lat) * 60,
+  });
+  const toLL = (pt) => fromNM(origin, pt);
+
+  const depXY = { x: 0, y: 0 };
+  const legs = profile.legs.map((leg) => ({ leg, stationXY: toNM(leg.station.pos), fixXY: toNM(leg.fixPos) }));
+
+  let prevXY = depXY;
+  legs.forEach((L) => {
+    L.fromXY = prevXY;
+    // Fix-to-fix legs have no intercept maneuver — the whole leg is one direct
+    // segment from the previous fix, so collapse the intercept point onto it.
+    L.interceptXY = L.leg.kind === "fixToFix"
+      ? L.fromXY
+      : (lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY);
+    prevXY = L.fixXY;
+  });
+
+  const ending = { type: profile.ending.type, fromXY: prevXY };
+  if (profile.ending.type === "hold") {
+    ending.stationXY = toNM(profile.ending.navaid.pos);
+    ending.racetrack = computeRacetrackXY(prevXY, profile.ending);
+  } else if (profile.ending.type === "approach") {
+    ending.stationXY = toNM(profile.ending.navaid.pos);
+    ending.interceptXY = lineIntersect(prevXY, profile.ending.interceptHeading, ending.stationXY, profile.ending.course) || prevXY;
+  }
+
+  return { origin, toNM, toLL, depXY, legs, ending };
+}
+
+function pad3(n) {
+  return Math.round(n).toString().padStart(3, "0");
+}
+
+/* ============================================================
+ * map.js — Real GIS map rendering of a flight profile, using
+ * Leaflet + Esri tiles. Pulls all coordinates from geometry.js's
+ * computeProfileGeometry() so the map always matches the
+ * KML/GPX export exactly.
+ * ============================================================ */
+
+function llArr(ll) { return [ll.lat, ll.lon]; }
+
+async function renderProfileMap(container, profile) {
+  const geo = computeProfileGeometry(profile);
+  const map = L.map(container, { scrollWheelZoom: true, zoomControl: false });
+  L.control.zoom({ position: "bottomright" }).addTo(map);
+
+  // Free basemap only — no API key/billing account needed, unlike Google's tile API.
+  // Esri's World_Imagery only has z19 native resolution over developed/urban areas;
+  // rural regions (like most of these training areas) serve a literal "Map data not
+  // yet available" placeholder tile past their real coverage. maxNativeZoom caps real
+  // tile requests at a level Esri reliably has everywhere, and Leaflet upscales the
+  // last good tile for zoom beyond that instead of ever fetching the placeholder.
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    maxZoom: 19,
+    maxNativeZoom: 16,
+    attribution: "Tiles &copy; Esri",
+  }).addTo(map);
+  addLegend(map);
+
+  const bounds = [];
+  const addBounds = (ll) => bounds.push(llArr(ll));
+
+  // Symbology (kept consistent with the on-map legend, see addLegend()):
+  //   amber dashed  = maneuvering to intercept a course (not yet established)
+  //   navy solid    = established, tracking a course / holding pattern
+  //   numbered pin  = a fix/waypoint, in the order the sortie visits it
+  const INTERCEPT_STYLE = { color: "#e0a02c", weight: 3, dashArray: "7 6" };
+  const TRACK_STYLE = { color: "#1d4f91", weight: 4 };
+
+  const navIcon = L.divIcon({ className: "navaid-marker", html: '<div class="pin pin-nav" title="Navaid"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
+  const depIcon = L.divIcon({ className: "dep-marker", html: '<div class="pin pin-dep">&#9992;</div>', iconSize: [24, 24], iconAnchor: [12, 12] });
+  const fixIcon = (n) => L.divIcon({ className: "fix-marker", html: `<div class="pin pin-fix">${n}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+  const holdIcon = L.divIcon({ className: "fix-marker", html: '<div class="pin pin-hold">H</div>', iconSize: [22, 22], iconAnchor: [11, 11] });
+
+  // Departure
+  const depLL = geo.origin;
+  addBounds(depLL);
+  L.marker(llArr(depLL), { icon: depIcon }).addTo(map).bindTooltip(`Takeoff — ${profile.departure.icao}`, { direction: "top" });
+
+  // Stations (dedup)
+  const drawnStations = new Set();
+  function ensureStation(xy, navaid) {
+    const key = (navaid.id || "") + navaid.type + navaid.freq;
+    if (drawnStations.has(key)) return;
+    drawnStations.add(key);
+    const ll = geo.toLL(xy);
+    addBounds(ll);
+    L.marker(llArr(ll), { icon: navIcon }).addTo(map).bindTooltip(
+      `${navaid.id || navaid.type} — ${navaid.type}${navaid.freq ? " " + navaid.freq : ""}${navaid.chan ? " / " + navaid.chan : ""}`
+    );
+  }
+
+  // Legs
+  geo.legs.forEach((L_, i) => {
+    ensureStation(L_.stationXY, L_.leg.station);
+    const fromLL = geo.toLL(L_.fromXY);
+    const interceptLL = geo.toLL(L_.interceptXY);
+    const fixLL = geo.toLL(L_.fixXY);
+    addBounds(fixLL);
+    if (L_.leg.kind === "fixToFix") {
+      L.polyline([llArr(fromLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
+        .bindTooltip(`Direct ${pad3(L_.leg.directCourse)}° / ${L_.leg.directDistNm} NM`, { sticky: true });
+    } else {
+      L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
+      L.polyline([llArr(interceptLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
+        .bindTooltip(`Track ${pad3(L_.leg.course)}° to ${L_.leg.dme} DME`, { sticky: true });
+    }
+    L.marker(llArr(fixLL), { icon: fixIcon(i + 1) }).addTo(map).bindTooltip(
+      `FIX ${i + 1} — R${pad3(L_.leg.course)}°/${L_.leg.dme} DME from ${L_.leg.station.id || L_.leg.station.type}`
+    );
+  });
+
+  // Ending
+  if (geo.ending.type === "hold") {
+    ensureStation(geo.ending.stationXY, profile.ending.navaid);
+    const rt = geo.ending.racetrack;
+    const loopPts = rt.loop.map((p) => geo.toLL(p));
+    loopPts.forEach(addBounds);
+    L.polyline(loopPts.map(llArr), TRACK_STYLE).addTo(map);
+    if (rt.kink) {
+      const kinkLL = rt.kink.map((p) => llArr(geo.toLL(p)));
+      L.polyline(kinkLL, INTERCEPT_STYLE).addTo(map);
+    }
+    const fLL = geo.toLL(rt.F);
+    L.marker(llArr(fLL), { icon: holdIcon }).addTo(map).bindTooltip(`Hold — ${profile.ending.navaid.id || profile.ending.navaid.type}, inbound ${pad3(profile.ending.inboundCourse)}°, ${profile.ending.turn} turns`);
+  } else if (geo.ending.type === "approach") {
+    ensureStation(geo.ending.stationXY, profile.ending.navaid);
+    const fromLL = geo.toLL(geo.ending.fromXY);
+    const interceptLL = geo.toLL(geo.ending.interceptXY);
+    const stationLL = geo.toLL(geo.ending.stationXY);
+    addBounds(stationLL);
+    L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
+    L.polyline([llArr(interceptLL), llArr(stationLL)], TRACK_STYLE).addTo(map)
+      .bindTooltip(`Final approach course ${pad3(profile.ending.course)}°`, { sticky: true });
+  }
+
+  // Training-area overlay (VTBL etc.) — drawn last, under everything visually but
+  // added after so it can still be toggled; low-key styling keeps it out of the way.
+  drawTrainingAreaOverlay(map, profile);
+
+  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+  return map;
+}
+
+/* Draw the briefed local training-area boundary (if the departure or any station
+ * airport has one) as a low-key reference overlay: one clean outer boundary line,
+ * plus a borderless fill wash over just the sub-area(s) this sortie actually used
+ * (their edges share the CTR vertex, so stroking every one of them at once drew a
+ * tangle of overlapping lines through the middle — fill-only avoids that). */
+function drawTrainingAreaOverlay(map, profile) {
+  const airports = new Set([profile.departure, ...profile.legs.map((l) => l.stationAirport)]);
+  const usedKeys = new Set(profile.config.trainingAreas || []);
+  airports.forEach((airport) => {
+    const polys = computeTrainingAreaPolygons(airport);
+    if (!polys) return;
+    L.polyline(polys.boundary.map(llArr), { color: "#8b96a8", weight: 2, dashArray: "4 5", opacity: .8 }).addTo(map);
+    Object.keys(polys.areas).forEach((key) => {
+      if (usedKeys.size && !usedKeys.has(key)) return;
+      const ring = polys.areas[key].map(llArr);
+      const poly = L.polygon(ring, { stroke: false, fillColor: "#3ecfab", fillOpacity: .08 }).addTo(map);
+      poly.bindTooltip(key.replace("area", "Area "), { sticky: true });
+    });
+  });
+}
+
+/* Small fixed legend explaining the line/marker symbology used on the map. */
+function addLegend(map) {
+  const legend = L.control({ position: "bottomleft" });
+  legend.onAdd = function () {
+    const div = L.DomUtil.create("div", "map-legend");
+    div.innerHTML = `
+      <div class="lg-row"><span class="lg-swatch lg-dep"></span>Departure</div>
+      <div class="lg-row"><span class="lg-swatch lg-nav"></span>Navaid station</div>
+      <div class="lg-row"><span class="lg-swatch lg-fix">1</span>Fix (in order flown)</div>
+      <div class="lg-row"><span class="lg-line lg-intercept"></span>Intercepting course</div>
+      <div class="lg-row"><span class="lg-line lg-track"></span>Established / holding</div>
+      <div class="lg-row"><span class="lg-line lg-area"></span>Training area</div>`;
+    L.DomEvent.disableClickPropagation(div);
+    return div;
+  };
+  legend.addTo(map);
+}
+
+/* ============================================================
+ * export.js — KML / GPX export, built from the exact same
+ * geometry as the map (geometry.js), so the exported file
+ * always matches what's shown on screen.
+ * ============================================================ */
+
+function escapeXml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function kmlCoord(ll) { return `${ll.lon.toFixed(6)},${ll.lat.toFixed(6)},0`; }
+
+function downloadText(filename, mime, text) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function buildKML(profile) {
+  const geo = computeProfileGeometry(profile);
+  const placemarks = [];
+  const lines = [];
+
+  placemarks.push(kmlPoint(`${profile.departure.icao} (T/O)`, "Departure / takeoff point", geo.origin));
+
+  const drawnStations = new Set();
+  function stationPlacemark(xy, navaid) {
+    const key = (navaid.id || "") + navaid.type + navaid.freq;
+    if (drawnStations.has(key)) return;
+    drawnStations.add(key);
+    const ll = geo.toLL(xy);
+    placemarks.push(kmlPoint(navaid.id || navaid.type, `${navaid.type}${navaid.freq ? " " + navaid.freq : ""}${navaid.chan ? " / " + navaid.chan : ""}`, ll));
+  }
+
+  geo.legs.forEach((L, i) => {
+    stationPlacemark(L.stationXY, L.leg.station);
+    const fromLL = geo.toLL(L.fromXY), interceptLL = geo.toLL(L.interceptXY), fixLL = geo.toLL(L.fixXY);
+    if (L.leg.kind === "fixToFix") {
+      lines.push(kmlLine(`Leg ${i + 1} — direct ${pad3(L.leg.directCourse)}°/${L.leg.directDistNm}NM`, "trackStyle", [fromLL, fixLL]));
+    } else {
+      lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
+      lines.push(kmlLine(`Leg ${i + 1} — track ${pad3(L.leg.course)}°`, "trackStyle", [interceptLL, fixLL]));
+    }
+    placemarks.push(kmlPoint(`FIX ${i + 1}`, `R${pad3(L.leg.course)}°/${L.leg.dme}DME from ${L.leg.station.id || L.leg.station.type}`, fixLL));
+  });
+
+  if (geo.ending.type === "hold") {
+    stationPlacemark(geo.ending.stationXY, profile.ending.navaid);
+    const rt = geo.ending.racetrack;
+    lines.push(kmlLine("Holding pattern", "trackStyle", rt.loop.map(geo.toLL)));
+    if (rt.kink) lines.push(kmlLine("Entry maneuver", "interceptStyle", rt.kink.map(geo.toLL)));
+    placemarks.push(kmlPoint("HOLD FIX", `Inbound course ${pad3(profile.ending.inboundCourse)}°, ${profile.ending.turn} turns`, geo.toLL(rt.F)));
+  } else if (geo.ending.type === "approach") {
+    stationPlacemark(geo.ending.stationXY, profile.ending.navaid);
+    const fromLL = geo.toLL(geo.ending.fromXY), interceptLL = geo.toLL(geo.ending.interceptXY), stLL = geo.toLL(geo.ending.stationXY);
+    lines.push(kmlLine("Final — intercept", "interceptStyle", [fromLL, interceptLL]));
+    lines.push(kmlLine("Final approach course", "trackStyle", [interceptLL, stLL]));
+  }
+
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>${escapeXml("Sortie #" + profile.id + " - " + profile.departure.icao)}</name>
+<Style id="trackStyle"><LineStyle><color>ff45250b</color><width>3</width></LineStyle></Style>
+<Style id="interceptStyle"><LineStyle><color>ff1d27a5</color><width>2</width></LineStyle></Style>
+${placemarks.join("\n")}
+${lines.join("\n")}
+</Document>
+</kml>`;
+  return kml;
+}
+
+function kmlPoint(name, desc, ll) {
+  return `<Placemark><name>${escapeXml(name)}</name><description>${escapeXml(desc || "")}</description><Point><coordinates>${kmlCoord(ll)}</coordinates></Point></Placemark>`;
+}
+function kmlLine(name, styleId, llList) {
+  return `<Placemark><name>${escapeXml(name)}</name><styleUrl>#${styleId}</styleUrl><LineString><tessellate>1</tessellate><coordinates>${llList.map(kmlCoord).join(" ")}</coordinates></LineString></Placemark>`;
+}
+
+function buildGPX(profile) {
+  const geo = computeProfileGeometry(profile);
+  const wpts = [];
+  const rtepts = [];
+
+  wpts.push(gpxWpt(geo.origin, `${profile.departure.icao}`, "Departure / takeoff"));
+  rtepts.push(gpxRtept(geo.origin, "DEP"));
+
+  const drawnStations = new Set();
+  geo.legs.forEach((L, i) => {
+    const key = (L.leg.station.id || "") + L.leg.station.type + L.leg.station.freq;
+    if (!drawnStations.has(key)) {
+      drawnStations.add(key);
+      const ll = geo.toLL(L.stationXY);
+      wpts.push(gpxWpt(ll, L.leg.station.id || L.leg.station.type, `${L.leg.station.type}${L.leg.station.freq ? " " + L.leg.station.freq : ""}`));
+    }
+    const fixLL = geo.toLL(L.fixXY);
+    wpts.push(gpxWpt(fixLL, `FIX${i + 1}`, `R${pad3(L.leg.course)}°/${L.leg.dme}DME`));
+    rtepts.push(gpxRtept(fixLL, `FIX${i + 1}`));
+  });
+
+  if (geo.ending.type === "hold") {
+    const fLL = geo.toLL(geo.ending.racetrack.F);
+    wpts.push(gpxWpt(fLL, "HOLD", `IC ${pad3(profile.ending.inboundCourse)}° ${profile.ending.turn} turns`));
+    rtepts.push(gpxRtept(fLL, "HOLD"));
+  } else if (geo.ending.type === "approach") {
+    const stLL = geo.toLL(geo.ending.stationXY);
+    wpts.push(gpxWpt(stLL, "FINAL", `Approach course ${pad3(profile.ending.course)}°`));
+    rtepts.push(gpxRtept(stLL, "FINAL"));
+  }
+
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="INST Sortie Builder" xmlns="http://www.topografix.com/GPX/1/1">
+${wpts.join("\n")}
+<rte>
+<name>${escapeXml("Sortie #" + profile.id + " - " + profile.departure.icao)}</name>
+${rtepts.join("\n")}
+</rte>
+</gpx>`;
+  return gpx;
+}
+
+function gpxWpt(ll, name, desc) {
+  return `<wpt lat="${ll.lat.toFixed(6)}" lon="${ll.lon.toFixed(6)}"><name>${escapeXml(name)}</name><desc>${escapeXml(desc || "")}</desc></wpt>`;
+}
+function gpxRtept(ll, name) {
+  return `<rtept lat="${ll.lat.toFixed(6)}" lon="${ll.lon.toFixed(6)}"><name>${escapeXml(name)}</name></rtept>`;
+}
+
+function exportProfileKML(profile) {
+  downloadText(`sortie-${profile.id}-${profile.departure.icao}.kml`, "application/vnd.google-earth.kml+xml", buildKML(profile));
+}
+function exportProfileGPX(profile) {
+  downloadText(`sortie-${profile.id}-${profile.departure.icao}.gpx`, "application/gpx+xml", buildGPX(profile));
+}
+
+/* ============================================================
+ * app.js — UI wiring: GIS-style workspace, sortie tabs, live
+ * map, detail panel, KML/GPX/print export.
+ * ============================================================ */
+
+const state = {
+  difficulty: "easy",
+  turnMode: "right",
+  stationMode: "single",
+  fixToFix: false,
+  ending: "hold",
+  trainingAreas: ["area1"],
+  profiles: [],
+  currentIndex: -1,
+  currentMap: null,
+  mapRequestId: 0,
+};
+
+function turnLabel(t) { return t === "right" ? "Right (standard)" : "Left (non-standard)"; }
+function fmtLeg(leg) { return leg.kind === "dme" ? `${leg.value} NM legs` : `${leg.value} min legs`; }
+
+function entryLabel(entry, standard) {
+  if (standard === "both") return `${ENTRY_LABEL.faa[entry.key]} <span class="note">(ICAO: ${ENTRY_LABEL.icao[entry.key]})</span>`;
+  return ENTRY_LABEL[standard][entry.key];
+}
+
+const AIRPORT_SHORT_NAME = {
+  VTBL: "Lop Buri",
+  VTPI: "Takhli",
+  VTPP: "Phitsanulok",
+  VTCC: "Chiang Mai",
+  VTUN: "Korat",
+  VTUU: "Ubon Ratchathani",
+  VTBK: "Kamphaeng Saen",
+  VTBD: "Don Mueang",
+};
+
+function initAirportSelects() {
+  [document.getElementById("selDeparture"), document.getElementById("selSecond")].forEach((sel) => {
+    AIRPORT_LIST.forEach((icao) => {
+      const a = AIRPORTS[icao];
+      const o = document.createElement("option");
+      o.value = icao;
+      o.textContent = `${icao} — ${AIRPORT_SHORT_NAME[icao] || a.name}`;
+      o.title = `${icao} — ${a.name}`;
+      sel.appendChild(o);
+    });
+  });
+  document.getElementById("selDeparture").value = "VTBL";
+  document.getElementById("selSecond").value = AIRPORT_LIST[1];
+}
+
+function wireChipGroup(id, onPick) {
+  const group = document.getElementById(id);
+  group.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      group.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+      chip.classList.add("active");
+      onPick(chip.dataset.val);
+    });
+  });
+}
+
+// Multi-select chip group: any number of chips can be active at once (at least one).
+function wireMultiChipGroup(id, onChange) {
+  const group = document.getElementById(id);
+  group.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const active = group.querySelectorAll(".chip.active");
+      if (active.length === 1 && chip.classList.contains("active")) return; // keep at least one selected
+      chip.classList.toggle("active");
+      onChange(Array.from(group.querySelectorAll(".chip.active")).map((c) => c.dataset.val));
+    });
+  });
+}
+
+function updateSecondAirportVisibility() {
+  document.getElementById("fieldSecondAirport").style.display = state.stationMode === "dual" ? "" : "none";
+  updateTrainingAreaVisibility();
+}
+function updateHoldOptionsVisibility() {
+  document.getElementById("fieldTurnMode").style.display = state.ending === "hold" ? "" : "none";
+}
+function updateTrainingAreaVisibility() {
+  const depIcao = document.getElementById("selDeparture").value;
+  const secondIcao = document.getElementById("selSecond").value;
+  const hasArea = !!(AIRPORTS[depIcao] && AIRPORTS[depIcao].trainingArea) ||
+    (state.stationMode === "dual" && AIRPORTS[secondIcao] && AIRPORTS[secondIcao].trainingArea);
+  document.getElementById("fieldTrainingArea").style.display = hasArea ? "" : "none";
+}
+
+function readConfig() {
+  return {
+    departureIcao: document.getElementById("selDeparture").value,
+    stationMode: state.stationMode,
+    fixToFix: state.fixToFix,
+    secondIcao: document.getElementById("selSecond").value,
+    legCount: Math.max(2, Math.min(10, parseInt(document.getElementById("numLegs").value, 10) || 4)),
+    interceptAngle: parseInt(document.getElementById("selAngle").value, 10),
+    difficulty: state.difficulty,
+    ending: state.ending,
+    turnMode: state.turnMode,
+    trainingAreas: document.getElementById("fieldTrainingArea").style.display !== "none" ? state.trainingAreas : [],
+    standard: document.getElementById("selStandard").value,
+  };
+}
+
+/* ---------------- Text builders (English) ---------------- */
+
+function legGivenText(L, i) {
+  const st = L.station;
+  const stLabel = `${st.id || st.type} ${st.type}${st.freq ? " " + st.freq : ""}`;
+  if (L.kind === "fixToFix") {
+    return `<b>Leg ${i + 1} (Fix-to-Fix):</b> FIX ${i + 1} is R${pad3(L.course)}°/${L.dme} DME from ${stLabel}. `
+      + `From your current position, compute the direct course and distance to FIX ${i + 1} and fly it.`;
+  }
+  return `<b>Leg ${i + 1}:</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
+    + `intercept course <b>${pad3(L.course)}°</b> and track it to <b>${L.dme} DME</b> from ${st.id || st.type} — this is FIX ${i + 1}.`;
+}
+
+function endingGivenText(profile) {
+  const e = profile.ending;
+  if (e.type === "hold") {
+    return `<b>Ending — Hold:</b> at FIX ${profile.legs.length}, hold at ${e.navaid.id || e.navaid.type}, `
+      + `inbound course <b>${pad3(e.inboundCourse)}°</b>, ${e.turn.toUpperCase()} TURNS, ${fmtLeg(e.leg)}, maintain ${profile.altitude} ft.`;
+  }
+  if (e.type === "approach") {
+    return `<b>Ending — Approach:</b> from FIX ${profile.legs.length} (${e.bearingFromStation.toFixed(0)}°/${e.distanceNm} NM from ${e.navaid.id}), `
+      + `intercept the final approach course <b>${pad3(e.course)}°</b> (RWY ${e.runway ? e.runway.ils : "-"}) into ${profile.departure.icao}.`;
+  }
+  return `<b>Ending:</b> sortie ends at FIX ${profile.legs.length} — report field in sight, rejoin the traffic pattern at ${profile.departure.icao}.`;
+}
+
+function buildScenarioHtml(profile) {
+  const rwy = profile.departure.runways && profile.departure.runways[0];
+  let html = `<p>Takeoff ${profile.departure.icao}${rwy ? " RWY " + rwy.id : ""}, climb and maintain ${profile.altitude} ft.</p>`;
+  profile.legs.forEach((L, i) => (html += `<p>${legGivenText(L, i)}</p>`));
+  html += `<p>${endingGivenText(profile)}</p>`;
+  return html;
+}
+
+function buildSetupHtml(profile) {
+  const rows = [
+    ["Departure", `${profile.departure.icao} — ${profile.departure.name}${profile.departure.runways && profile.departure.runways[0] ? " (RWY " + profile.departure.runways[0].id + ")" : ""}`],
+    ["Altitude", `${profile.altitude} ft`],
+    ["Intercept angle used", `${profile.config.interceptAngle}°`],
+  ];
+  profile.legs.forEach((L, i) => {
+    const st = L.station;
+    rows.push([`Leg ${i + 1} station`, `${st.id || "-"} (${st.type}${st.freq ? ", " + st.freq : ""}${st.chan ? " / " + st.chan : ""}) — ${L.stationAirport.icao}`]);
+    if (L.kind === "fixToFix") {
+      rows.push([`Leg ${i + 1} type`, "Fix-to-Fix (direct)"]);
+      rows.push([`Leg ${i + 1} FIX definition`, `R${pad3(L.course)}° / ${L.dme} NM from station`]);
+    } else {
+      rows.push([`Leg ${i + 1} course / DME`, `${pad3(L.course)}° / ${L.dme} NM`]);
+      rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
+    }
+  });
+  const e = profile.ending;
+  if (e.type === "hold") {
+    rows.push(["Hold navaid", `${e.navaid.id || e.navaid.type}`]);
+    rows.push(["Hold inbound / turn", `${pad3(e.inboundCourse)}° / ${turnLabel(e.turn)}`]);
+    rows.push(["Hold leg", fmtLeg(e.leg)]);
+  } else if (e.type === "approach") {
+    rows.push(["Final approach course", `${pad3(e.course)}° (RWY ${e.runway ? e.runway.ils : "-"})`]);
+  }
+  return `<table>${rows.map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join("")}</table>`;
+}
+
+function buildAnswerHtml(profile) {
+  let html = "";
+  profile.legs.forEach((L, i) => {
+    if (L.kind === "fixToFix") {
+      html += `<div class="result">Leg ${i + 1}: fly direct <b>${pad3(L.directCourse)}°</b> for <b>${L.directDistNm} NM</b></div>`
+        + `<p class="note">Direct course/distance computed from your position to FIX ${i + 1} (R${pad3(L.course)}°/${L.dme} DME from station).</p>`;
+    } else {
+      html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept</div>`
+        + `<p class="note">Aircraft is on the ${L.side} side of course ${pad3(L.course)}° → turn ${L.side === "right" ? "left" : "right"}, `
+        + `${L.interceptAngle}° off course. Once established, track ${pad3(L.course)}° to ${L.dme} DME.</p>`;
+    }
+  });
+  const e = profile.ending;
+  if (e.type === "hold") {
+    html += `<div class="result">Holding entry: ${entryLabel(e.entry, profile.config.standard)}</div>`
+      + `<p class="note">Arrival heading ${pad3(e.arrivalHeading)}° is ${e.entry.delta}° (clockwise) from inbound course ${pad3(e.inboundCourse)}° `
+      + `→ ${e.entry.key} sector for ${e.turn}-hand turns (margin ${e.marginToBoundary.toFixed(0)}°).</p>`;
+  } else if (e.type === "approach") {
+    html += `<div class="result">Final intercept: fly <b>${pad3(e.interceptHeading)}°</b></div>`
+      + `<p class="note">Aircraft is on the ${e.side} side of final course ${pad3(e.course)}° → turn ${e.side === "right" ? "left" : "right"}, ${e.interceptAngle}° off course to join final.</p>`;
+  }
+  return html;
+}
+
+/* ---------------- Sortie tabs / map / detail panel ---------------- */
+
+function renderSortieTabs() {
+  const wrap = document.getElementById("sortieTabs");
+  wrap.innerHTML = "";
+  state.profiles.forEach((p, i) => {
+    const tab = document.createElement("div");
+    tab.className = "sortie-tab" + (i === state.currentIndex ? " active" : "");
+    tab.textContent = `Sortie ${p.id} (${p.departure.icao})`;
+    tab.addEventListener("click", () => selectProfile(i));
+    wrap.appendChild(tab);
+  });
+}
+
+async function selectProfile(idx) {
+  state.currentIndex = idx;
+  renderSortieTabs();
+
+  const profile = state.profiles[idx];
+  document.getElementById("mapEmptyHint").style.display = "none";
+  document.getElementById("detailPanel").style.display = "";
+  document.getElementById("detailToggle").style.display = "";
+  document.getElementById("btnExportKML").disabled = false;
+  document.getElementById("btnExportGPX").disabled = false;
+  document.getElementById("btnPrint").disabled = false;
+
+  document.getElementById("paneScenario").innerHTML = buildScenarioHtml(profile);
+  document.getElementById("paneSetup").innerHTML = buildSetupHtml(profile);
+  document.getElementById("paneAnswer").innerHTML = buildAnswerHtml(profile);
+
+  if (state.currentMap) {
+    state.currentMap.remove();
+    state.currentMap = null;
+  }
+  const mapDiv = document.getElementById("mainMap");
+  mapDiv.innerHTML = "";
+  const requestId = ++state.mapRequestId;
+  const map = await renderProfileMap(mapDiv, profile);
+  if (requestId !== state.mapRequestId) { map.remove(); return; } // a newer selection started while we were loading
+  state.currentMap = map;
+  requestAnimationFrame(() => state.currentMap && state.currentMap.invalidateSize());
+}
+
+function wireDetailTabs() {
+  document.querySelectorAll(".dtab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".dtab").forEach((t) => t.classList.remove("active"));
+      tab.classList.add("active");
+      document.querySelectorAll(".dpane").forEach((p) => (p.style.display = p.dataset.pane === tab.dataset.tab ? "" : "none"));
+    });
+  });
+}
+
+function main() {
+  initAirportSelects();
+  document.getElementById("selRounding").addEventListener("change", (e) => (state.difficulty = e.target.value));
+  document.getElementById("selTurn").addEventListener("change", (e) => (state.turnMode = e.target.value));
+  document.getElementById("chkTwoStations").addEventListener("change", (e) => {
+    state.stationMode = e.target.checked ? "dual" : "single";
+    updateSecondAirportVisibility();
+  });
+  document.getElementById("chkFixToFix").addEventListener("change", (e) => (state.fixToFix = e.target.checked));
+  wireChipGroup("chipEnding", (v) => { state.ending = v; updateHoldOptionsVisibility(); });
+  wireMultiChipGroup("chipTrainingArea", (vals) => (state.trainingAreas = vals));
+  document.getElementById("selDeparture").addEventListener("change", updateTrainingAreaVisibility);
+  document.getElementById("selSecond").addEventListener("change", updateTrainingAreaVisibility);
+  updateSecondAirportVisibility();
+  updateHoldOptionsVisibility();
+  updateTrainingAreaVisibility();
+  wireDetailTabs();
+
+  document.getElementById("btnGenerate").addEventListener("click", () => {
+    const cfg = readConfig();
+    const count = Math.max(1, Math.min(10, parseInt(document.getElementById("numCount").value, 10) || 1));
+    state.profiles = generateProfiles(cfg, count);
+    selectProfile(0);
+  });
+
+  document.getElementById("btnExportKML").addEventListener("click", () => {
+    if (state.currentIndex >= 0) exportProfileKML(state.profiles[state.currentIndex]);
+  });
+  document.getElementById("btnExportGPX").addEventListener("click", () => {
+    if (state.currentIndex >= 0) exportProfileGPX(state.profiles[state.currentIndex]);
+  });
+  document.getElementById("btnPrint").addEventListener("click", () => {
+    const includeAnswers = document.getElementById("chkShowAnswers").checked;
+    document.getElementById("paneAnswer").classList.toggle("print-hide", !includeAnswers);
+    window.print();
+  });
+
+  window.addEventListener("resize", () => { if (state.currentMap) state.currentMap.invalidateSize(); });
+
+  document.getElementById("sidebarToggle").addEventListener("click", () => {
+    document.getElementById("layoutRoot").classList.toggle("collapsed");
+    setTimeout(() => state.currentMap && state.currentMap.invalidateSize(), 220);
+  });
+
+  document.querySelectorAll(".side-section-head").forEach((head) => {
+    head.addEventListener("click", () => {
+      const section = head.parentElement;
+      const open = section.dataset.open !== "false";
+      section.dataset.open = open ? "false" : "true";
+    });
+  });
+
+  document.getElementById("detailToggle").addEventListener("click", () => {
+    document.getElementById("gisWorkspace").classList.toggle("detail-collapsed");
+    setTimeout(() => state.currentMap && state.currentMap.invalidateSize(), 220);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", main);
+</script>
+</body>
+</html>
