@@ -467,6 +467,10 @@ header.app-header h1 { font-size: 14px; }
             <div class="field"><label>Holding</label><input type="number" id="numHoldingLegs" class="stepper-in" min="0" max="10" value="0"></div>
           </div>
           <div class="mix-note" id="mixNote"></div>
+          <div class="field" id="fieldHoldRef" style="margin-top:9px;">
+            <label>Holding reference <span class="hint">radial &amp; inbound taken from this navaid</span></label>
+            <select id="selHoldRef"></select>
+          </div>
         </div>
       </div>
 
@@ -1020,11 +1024,29 @@ function samplePointInPolygons(polys) {
 
 /* ---------------- Flight-profile (sortie) generator ---------------- */
 
-// Station every Holding leg is flown against: the VTBL TACAN (LOB).
-function holdRef() {
-  const airport = AIRPORTS.VTBL;
-  const navaid = airport.navaids.find((n) => n.type === "TACAN") || airport.navaids[0];
-  return { airport, navaid };
+// Navaids a Holding leg can be flown against: the departure airport's (and the
+// second station's, in dual mode) NDB / VOR-DME / TACAN. Key = "ICAO|index".
+function holdRefOptions(depIcao, secondIcao, dual) {
+  const out = [];
+  [depIcao, dual ? secondIcao : null].forEach((icao) => {
+    const airport = AIRPORTS[icao];
+    if (!airport || out.some((o) => o.airport === airport)) return;
+    navaidsUsableAsFix(airport).forEach((navaid) => {
+      out.push({ key: icao + "|" + airport.navaids.indexOf(navaid), airport, navaid });
+    });
+  });
+  return out;
+}
+
+// Default preference when nothing is picked: TACAN, then VOR/DME, then whatever is left.
+function defaultHoldRef(options) {
+  return options.find((o) => o.navaid.type === "TACAN") || options.find((o) => o.navaid.type === "VOR/DME") || options[0];
+}
+
+// Station every Holding leg is flown against — the instructor's choice (config.holdRefKey).
+function holdRef(config, dep) {
+  const options = holdRefOptions(config.departureIcao, config.secondIcao, config.stationMode === "dual");
+  return options.find((o) => o.key === config.holdRefKey) || defaultHoldRef(options) || { airport: dep, navaid: dep.navaids[0] };
 }
 
 function generateFlightProfile(config) {
@@ -1059,9 +1081,8 @@ function generateFlightProfile(config) {
     // airport/station-mode combo has none (e.g. an NDB-only field).
     const wantArc = legKinds[i] === "dmeArc" && arcPool.length > 0;
     let kind = legKinds[i] === "dmeArc" && !wantArc ? "intercept" : legKinds[i];
-    // Holding is always referenced to the VTBL (Lop Buri) TACAN, whatever the
-    // departure airport / second-station setting is.
-    const ref = kind === "hold" ? holdRef() : pick(wantArc ? arcPool : pool);
+    // Holding is flown against the navaid chosen in the Holding reference selector.
+    const ref = kind === "hold" ? holdRef(config, dep) : pick(wantArc ? arcPool : pool);
     const station = ref.navaid;
 
     // If this station's airport has a briefed training area and the instructor
@@ -1218,7 +1239,7 @@ function generateFlightProfile(config) {
       // self-contained holding exercise at its own location, distinct from any
       // final "Ending: Hold" (which is a separate thing that happens after all
       // legs, possibly at yet another fix).
-      // The hold sits on radial `course` of the VTBL TACAN, inbound TO the station:
+      // The hold sits on radial `course` of the chosen reference navaid, inbound TO the station:
       // inbound course = radial + 180. The aircraft flies direct to the fix, so the
       // arrival heading (and therefore the entry sector) depends on where it comes from.
       const { bearing, distNm } = bearingDistance(station.pos, currentPos);
@@ -1864,6 +1885,24 @@ function wireMultiChipGroup(id, onChange) {
   });
 }
 
+// Fill the Holding-reference selector from the chosen airport(s), keeping the
+// current pick when it is still available, otherwise TACAN > VOR/DME > first.
+function updateHoldRefOptions() {
+  const sel = document.getElementById("selHoldRef");
+  const options = holdRefOptions(document.getElementById("selDeparture").value, document.getElementById("selSecond").value, state.stationMode === "dual");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  options.forEach((o) => {
+    const opt = document.createElement("option");
+    opt.value = o.key;
+    const n = o.navaid;
+    opt.textContent = `${o.airport.icao} · ${n.id ? n.id + " " : ""}${n.type}${n.freq ? " " + n.freq : n.chan ? " " + n.chan : ""}`;
+    sel.appendChild(opt);
+  });
+  const keep = options.find((o) => o.key === prev) || defaultHoldRef(options);
+  if (keep) sel.value = keep.key;
+}
+
 function updateSecondAirportVisibility() {
   document.getElementById("fieldSecondAirport").style.display = state.stationMode === "dual" ? "" : "none";
   updateTrainingAreaVisibility();
@@ -1891,6 +1930,7 @@ function readConfig() {
     trainingAreas: document.getElementById("fieldTrainingArea").style.display !== "none" ? state.trainingAreas : [],
     standard: document.getElementById("selStandard").value,
     ring: readRing(),
+    holdRefKey: document.getElementById("selHoldRef").value,
   };
 }
 
@@ -2128,6 +2168,7 @@ function syncSidebar() {
   note.innerHTML = rest < 0
     ? `Mix uses ${special} legs but total is ${total} — raise Total legs.`
     : `Remaining <b>${rest}</b> leg${rest === 1 ? "" : "s"} will be Intercept.`;
+  document.getElementById("fieldHoldRef").style.display = (parseInt(document.getElementById("numHoldingLegs").value, 10) || 0) > 0 ? "" : "none";
   document.getElementById("ringFields").style.display = document.getElementById("chkRing").checked ? "" : "none";
 }
 
@@ -2140,13 +2181,15 @@ function main() {
   document.getElementById("chkTwoStations").addEventListener("change", (e) => {
     state.stationMode = e.target.checked ? "dual" : "single";
     updateSecondAirportVisibility();
+    updateHoldRefOptions();
   });
   document.getElementById("selDifficultyLevel").addEventListener("change", (e) => applyDifficultyPreset(e.target.value));
   wireMultiChipGroup("chipTrainingArea", (vals) => (state.trainingAreas = vals));
-  document.getElementById("selDeparture").addEventListener("change", updateTrainingAreaVisibility);
-  document.getElementById("selSecond").addEventListener("change", updateTrainingAreaVisibility);
+  document.getElementById("selDeparture").addEventListener("change", () => { updateTrainingAreaVisibility(); updateHoldRefOptions(); });
+  document.getElementById("selSecond").addEventListener("change", () => { updateTrainingAreaVisibility(); updateHoldRefOptions(); });
   updateSecondAirportVisibility();
   updateTrainingAreaVisibility();
+  updateHoldRefOptions();
   wireDetailTabs();
 
   document.getElementById("btnGenerate").addEventListener("click", () => {
