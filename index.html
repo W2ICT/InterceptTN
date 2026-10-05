@@ -271,6 +271,100 @@ button.primary:active { transform: translateY(1px); }
 
 .empty-hint { color: var(--muted); font-size: 14.5px; padding: 40px 10px; text-align: center; line-height: 1.6; }
 
+/* ---------------- Map-first layout: GIS fills the screen, panels float over it ---------------- */
+header.app-header { padding: 6px 14px; }
+header.app-header p { display: none; }
+.brand-mark { width: 28px; height: 28px; font-size: 15px; }
+header.app-header h1 { font-size: 14px; }
+.layout { position: relative; display: block; height: calc(100vh - 41px); padding: 0; }
+.gis-workspace { position: absolute; inset: 0; display: block; margin: 0; }
+.map-area { position: absolute; inset: 0; border: none; border-radius: 0; min-height: 0; }
+.panel, .detail-panel {
+  position: absolute; top: 12px; bottom: 12px; z-index: 1000;
+  background: rgba(23, 28, 39, .93); backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-lg);
+}
+.panel { left: 12px; width: 310px; }
+.detail-panel { right: 12px; width: 380px; height: auto; }
+.sidebar-toggle, .detail-toggle {
+  position: absolute; top: 12px; z-index: 1000; width: 24px; height: 36px; margin: 0;
+  background: rgba(31, 38, 52, .95); box-shadow: var(--shadow);
+}
+.sidebar-toggle { left: 330px; transition: left .2s ease, transform .2s ease; }
+.layout.collapsed .sidebar-toggle { left: 12px; }
+.detail-toggle { right: 400px; transition: right .2s ease, transform .2s ease; }
+.gis-workspace.detail-collapsed .detail-toggle { right: 12px; }
+.toolbar-row {
+  position: absolute; top: 12px; left: 370px; right: 440px; z-index: 1000;
+  padding: 0; background: none; justify-content: center; pointer-events: none;
+}
+.toolbar-row > * { pointer-events: auto; }
+.sortie-tabs { justify-content: center; }
+.sortie-tab { background: rgba(31, 38, 52, .95); box-shadow: var(--shadow); padding: 6px 14px; }
+.sortie-tab.active { background: var(--teal); }
+.sortie-tabs:empty { display: none; }
+/* keep Leaflet controls clear of the floating panels */
+.layout:not(.collapsed) .leaflet-bottom.leaflet-left { margin-left: 334px; }
+.gis-workspace:not(.detail-collapsed) .leaflet-bottom.leaflet-right { margin-right: 404px; }
+.leaflet-bottom.leaflet-left, .leaflet-bottom.leaflet-right { transition: margin .2s ease; }
+@media (max-width: 860px) {
+  .layout { height: auto; }
+  .gis-workspace, .map-area { position: relative; height: 60vh; }
+  .panel, .detail-panel { position: static; width: auto; backdrop-filter: none; }
+  .toolbar-row, .sidebar-toggle, .detail-toggle { position: static; }
+  .layout:not(.collapsed) .leaflet-bottom.leaflet-left, .gis-workspace:not(.detail-collapsed) .leaflet-bottom.leaflet-right { margin: 0; }
+}
+
+/* ---------------- Sidebar redesign: segmented controls, steppers, sticky footer ---------------- */
+.panel { display: flex; flex-direction: column; }
+.panel-scroll { flex: 1 1 auto; height: auto; min-height: 0; padding: 8px 8px 4px; }
+.panel-foot { flex: 0 0 auto; padding: 10px 12px 11px; border-top: 1px solid var(--line); background: rgba(31, 38, 52, .85); }
+.foot-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 7px; }
+.foot-row button.primary { margin: 0; flex: 1 1 auto; width: auto; padding: 11px 10px; }
+.foot-count { flex: 0 0 104px; margin: 0; }
+.panel-foot .check-row { margin-top: 0; }
+.side-section { padding: 9px 11px; margin-bottom: 8px; }
+.side-section-head { font-size: 12.5px; }
+.field { margin-bottom: 9px; }
+.field label, .sub-label { font-size: 11.5px; }
+.sub-label { display: block; font-weight: 600; color: var(--muted); margin: 2px 0 4px; }
+.field label .hint { font-weight: 400; opacity: .7; margin-left: 4px; font-size: 10.5px; }
+.hint { color: var(--muted); }
+
+.seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 2px; gap: 2px; }
+.seg button {
+  flex: 1 1 0; min-width: 0; border: none; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 600;
+  padding: 6px 4px; border-radius: 8px; cursor: pointer; white-space: nowrap; transition: background .12s ease, color .12s ease;
+}
+.seg button:hover { color: var(--ink); }
+.seg button.on { background: var(--teal); color: #06251d; }
+
+.stepper { display: flex; align-items: stretch; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.stepper:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(62, 207, 171, .15); }
+.stepper button { flex: 0 0 28px; border: none; background: var(--panel-3); color: var(--ink); font-size: 15px; line-height: 1; cursor: pointer; padding: 0; }
+.stepper button:hover { background: var(--teal); color: #06251d; }
+.stepper input[type=number] { flex: 1 1 auto; min-width: 0; width: 100%; border: none !important; box-shadow: none !important; border-radius: 0; text-align: center; font-weight: 700; background: transparent; -moz-appearance: textfield; padding: 6px 2px; }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.mix-grid, .ring-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ring-fields { grid-template-columns: 1fr 1fr; margin: 8px 0 10px; }
+.mix-grid .field, .ring-fields .field { margin: 0; }
+.mix-grid .field label { font-size: 10.5px; white-space: nowrap; }
+.mix-note { margin-top: 7px; font-size: 11.5px; color: var(--muted); }
+.mix-note b { color: var(--teal); }
+.mix-note.warn, .mix-note.warn b { color: var(--danger); }
+
+.switch-row { position: relative; display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 2px 0 8px; user-select: none; }
+.switch-row input { position: absolute; opacity: 0; pointer-events: none; }
+.switch { flex: none; width: 34px; height: 19px; border-radius: 999px; background: var(--panel-3); border: 1px solid var(--line); position: relative; transition: background .15s ease; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
+.switch-row input:checked + .switch { background: rgba(62, 207, 171, .25); border-color: var(--teal); }
+.switch-row input:checked + .switch::after { transform: translateX(15px); background: var(--teal); }
+.switch-row input:focus-visible + .switch { box-shadow: 0 0 0 3px rgba(62, 207, 171, .25); }
+.switch-text { font-size: 12.5px; color: var(--ink); line-height: 1.3; }
+.switch-text b { color: var(--teal); }
+@media (max-width: 860px) { .panel { display: block; } .panel-foot { position: sticky; bottom: 0; } }
+
 /* ---------------- Print — two landscape pages: page 1 is the profile view
    (map + scenario side by side), page 2 is the detail (setup + answer key,
    full width). detail-panel/detail-body are unwrapped with display:contents
@@ -281,9 +375,9 @@ button.primary:active { transform: translateY(1px); }
   header.app-header, .panel, .sidebar-toggle, .toolbar-row, .icon-btn, .detail-toggle { display: none !important; }
   body { background: #fff; color: #000; font-size: 9.5px; }
   .layout { display: block; padding: 0; height: auto; }
-  .gis-workspace { display: block !important; margin-left: 0 !important; }
+  .gis-workspace { display: block !important; margin-left: 0 !important; position: static !important; }
 
-  .map-area { float: left; width: 46%; margin-right: 2%; height: 178mm; border: none; page-break-inside: avoid; }
+  .map-area { position: relative !important; float: left; width: 46%; margin-right: 2%; height: 178mm; border: none; page-break-inside: avoid; }
   .detail-panel, .detail-body { display: contents !important; }
   .detail-tabs { display: none; }
   .dpane { display: none !important; }
@@ -325,32 +419,26 @@ button.primary:active { transform: translateY(1px); }
   </div>
 </header>
 
+<div class="layout" id="layoutRoot">
 <div class="toolbar-row">
   <div class="sortie-tabs" id="sortieTabs"></div>
 </div>
 
-<div class="layout" id="layoutRoot">
   <aside class="panel" id="controlPanel">
     <div class="panel-scroll">
 
       <div class="side-section" data-open="true">
-        <div class="side-section-head"><span class="chev">▾</span> 🎚 Difficulty</div>
+        <div class="side-section-head"><span class="chev">▾</span> 🎚 Level &amp; base</div>
         <div class="side-section-body">
           <div class="field">
-            <label>Challenge level — sets legs, angle, rounding, leg mix &amp; turn below</label>
-            <select id="selDifficultyLevel">
+            <label>Challenge level <span class="hint">sets legs, angle, rounding, mix &amp; turn</span></label>
+            <select id="selDifficultyLevel" data-seg>
               <option value="beginner" selected>Beginner</option>
-              <option value="intermediate">Intermediate</option>
+              <option value="intermediate">Inter.</option>
               <option value="hard">Hard</option>
               <option value="hardest">Hardest</option>
             </select>
           </div>
-        </div>
-      </div>
-
-      <div class="side-section" data-open="true">
-        <div class="side-section-head"><span class="chev">▾</span> 🧭 Route</div>
-        <div class="side-section-body">
           <div class="field">
             <label>Departure airport</label>
             <select id="selDeparture"></select>
@@ -362,86 +450,98 @@ button.primary:active { transform: translateY(1px); }
           <div class="field" id="fieldSecondAirport" style="display:none;">
             <select id="selSecond"></select>
           </div>
-          <div class="field-row field-row-3">
-            <div class="field">
-              <label>Fix-to-Fix legs</label>
-              <input type="number" id="numFixToFix" min="0" max="10" value="0">
-            </div>
-            <div class="field">
-              <label>DME Arc legs</label>
-              <input type="number" id="numDmeArc" min="0" max="10" value="0">
-            </div>
-            <div class="field">
-              <label>Holding legs</label>
-              <input type="number" id="numHoldingLegs" min="0" max="10" value="0">
-            </div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 🧭 Legs</div>
+        <div class="side-section-body">
+          <div class="field">
+            <label>Total legs</label>
+            <input type="number" id="numLegs" class="stepper-in" min="2" max="10" value="4">
+          </div>
+          <label class="sub-label">Leg mix</label>
+          <div class="mix-grid">
+            <div class="field"><label>Fix-to-Fix</label><input type="number" id="numFixToFix" class="stepper-in" min="0" max="10" value="0"></div>
+            <div class="field"><label>DME Arc</label><input type="number" id="numDmeArc" class="stepper-in" min="0" max="10" value="0"></div>
+            <div class="field"><label>Holding</label><input type="number" id="numHoldingLegs" class="stepper-in" min="0" max="10" value="0"></div>
+          </div>
+          <div class="mix-note" id="mixNote"></div>
+        </div>
+      </div>
+
+      <div class="side-section" data-open="true">
+        <div class="side-section-head"><span class="chev">▾</span> 📍 Training area</div>
+        <div class="side-section-body">
+          <label class="switch-row">
+            <input type="checkbox" id="chkRing">
+            <span class="switch"></span>
+            <span class="switch-text">Keep fixes <b>8–20 NM</b> from departure</span>
+          </label>
+          <div class="ring-fields" id="ringFields" style="display:none;">
+            <div class="field"><label>Min NM</label><input type="number" id="numRingMin" class="stepper-in" min="0" max="60" step="1" value="8"></div>
+            <div class="field"><label>Max NM</label><input type="number" id="numRingMax" class="stepper-in" min="1" max="60" step="1" value="20"></div>
           </div>
           <div class="field" id="fieldTrainingArea" style="display:none;">
-            <label>Training area(s) — tap to add/remove</label>
+            <label>Briefed sub-area(s) <span class="hint">tap to add/remove</span></label>
             <div class="chip-group chip-sm" id="chipTrainingArea">
               <div class="chip active" data-val="area1">Area 1</div>
               <div class="chip" data-val="area2">Area 2</div>
               <div class="chip" data-val="area3">Area 3</div>
             </div>
           </div>
-          <div class="field-row field-row-3">
-            <div class="field">
-              <label>Legs</label>
-              <input type="number" id="numLegs" min="2" max="10" value="4">
-            </div>
-            <div class="field">
-              <label>Angle</label>
-              <select id="selAngle">
-                <option value="30">30°</option>
-                <option value="45" selected>45°</option>
-                <option value="60">60°</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Rounding</label>
-              <select id="selRounding">
-                <option value="easy">30°</option>
-                <option value="medium">10°</option>
-                <option value="hard">1°</option>
-              </select>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Turn (for Holding legs)</label>
-              <select id="selTurn">
-                <option value="right">Standard (R)</option>
-                <option value="mixed">Random</option>
-                <option value="left">Non-std (L)</option>
-              </select>
-            </div>
-            <div class="field">
-              <label>Terminology</label>
-              <select id="selStandard">
-                <option value="faa">FAA</option>
-                <option value="icao">ICAO</option>
-                <option value="both">Both</option>
-              </select>
-            </div>
-          </div>
         </div>
       </div>
 
-      <div class="side-section" data-open="true">
-        <div class="side-section-head"><span class="chev">▾</span> ✨ Generate</div>
+      <div class="side-section" data-open="false">
+        <div class="side-section-head"><span class="chev">▾</span> ⚙ Advanced</div>
         <div class="side-section-body">
           <div class="field">
-            <label>Number of sorties</label>
-            <input type="number" id="numCount" min="1" max="10" value="1">
+            <label>Intercept angle</label>
+            <select id="selAngle" data-seg>
+              <option value="30">30°</option>
+              <option value="45" selected>45°</option>
+              <option value="60">60°</option>
+            </select>
           </div>
-          <button class="primary" id="btnGenerate">Generate sortie(s)</button>
-          <label class="check-row">
-            <input type="checkbox" id="chkShowAnswers" checked>
-            <span>Include answer key in PDF export</span>
-          </label>
+          <div class="field">
+            <label>Course rounding</label>
+            <select id="selRounding" data-seg>
+              <option value="easy">30°</option>
+              <option value="medium">10°</option>
+              <option value="hard">1°</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Holding turns</label>
+            <select id="selTurn" data-seg>
+              <option value="right">Std (R)</option>
+              <option value="mixed">Random</option>
+              <option value="left">Non-std (L)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Entry terminology</label>
+            <select id="selStandard" data-seg>
+              <option value="faa">FAA</option>
+              <option value="icao">ICAO</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
         </div>
       </div>
 
+    </div>
+
+    <div class="panel-foot">
+      <div class="foot-row">
+        <div class="field foot-count"><label>Sorties</label><input type="number" id="numCount" class="stepper-in" min="1" max="10" value="1"></div>
+        <button class="primary" id="btnGenerate">✨ Generate</button>
+      </div>
+      <label class="check-row">
+        <input type="checkbox" id="chkShowAnswers" checked>
+        <span>Include answer key in PDF export</span>
+      </label>
     </div>
   </aside>
 
@@ -920,6 +1020,13 @@ function samplePointInPolygons(polys) {
 
 /* ---------------- Flight-profile (sortie) generator ---------------- */
 
+// Station every Holding leg is flown against: the VTBL TACAN (LOB).
+function holdRef() {
+  const airport = AIRPORTS.VTBL;
+  const navaid = airport.navaids.find((n) => n.type === "TACAN") || airport.navaids[0];
+  return { airport, navaid };
+}
+
 function generateFlightProfile(config) {
   const dep = AIRPORTS[config.departureIcao];
   const pool = [];
@@ -934,6 +1041,13 @@ function generateFlightProfile(config) {
 
   const courseStep = config.difficulty === "easy" ? 30 : config.difficulty === "medium" ? 10 : 1;
   const interceptAngle = config.interceptAngle || 45;
+  // Optional training ring: every fix must sit between ring.minNm and ring.maxNm of the departure ARP.
+  const ring = config.ring;
+  const inRing = (p) => {
+    if (!ring) return true;
+    const d = bearingDistance(dep.arp, p).distNm;
+    return d >= ring.minNm && d <= ring.maxNm;
+  };
   // Training altitude is restricted to 1000-5500 ft AGL, in 500ft steps.
   const altitude = randInt(2, 11) * 500;
 
@@ -945,7 +1059,9 @@ function generateFlightProfile(config) {
     // airport/station-mode combo has none (e.g. an NDB-only field).
     const wantArc = legKinds[i] === "dmeArc" && arcPool.length > 0;
     let kind = legKinds[i] === "dmeArc" && !wantArc ? "intercept" : legKinds[i];
-    const ref = pick(wantArc ? arcPool : pool);
+    // Holding is always referenced to the VTBL (Lop Buri) TACAN, whatever the
+    // departure airport / second-station setting is.
+    const ref = kind === "hold" ? holdRef() : pick(wantArc ? arcPool : pool);
     const station = ref.navaid;
 
     // If this station's airport has a briefed training area and the instructor
@@ -979,7 +1095,7 @@ function generateFlightProfile(config) {
         let ok, extra;
         if (kind === "fixToFix") {
           const mid = { lat: (currentPos.lat + cFixPos.lat) / 2, lon: (currentPos.lon + cFixPos.lon) / 2 };
-          ok = pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys));
+          ok = inRing(cFixPos) && pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys));
         } else if (kind === "dmeArc") {
           const turn = pick(["left", "right"]);
           const sweepDeg = roundTo(rand(20, 70), 10);
@@ -989,14 +1105,14 @@ function generateFlightProfile(config) {
           const cInterceptHeading = solveIntercept(curBearing, cCourse, interceptAngle).interceptHeading;
           const interceptPt = intersectCourses(currentPos, cInterceptHeading, station.pos, cCourse);
           ok = interceptPt && (!startInArea || pointInAnyPolygon(interceptPt, selectedPolys))
-            && pointInAnyPolygon(cFixPos, selectedPolys)
+            && pointInAnyPolygon(cFixPos, selectedPolys) && inRing(extra.exitPos) && inRing(extra.midPos)
             && pointInAnyPolygon(extra.exitPos, selectedPolys)
             && pointInAnyPolygon(extra.midPos, selectedPolys);
         } else {
           const curBearing = bearingDistance(station.pos, currentPos).bearing;
           const cInterceptHeading = solveIntercept(curBearing, cCourse, interceptAngle).interceptHeading;
           const interceptPt = intersectCourses(currentPos, cInterceptHeading, station.pos, cCourse);
-          ok = interceptPt && (!startInArea || pointInAnyPolygon(interceptPt, selectedPolys)) && pointInAnyPolygon(cFixPos, selectedPolys);
+          ok = interceptPt && (!startInArea || pointInAnyPolygon(interceptPt, selectedPolys)) && pointInAnyPolygon(cFixPos, selectedPolys) && inRing(cFixPos);
         }
         if (ok) { course = cCourse; dme = cDme; fixPos = kind === "dmeArc" ? extra.exitPos : cFixPos; arcExtra = extra; }
       }
@@ -1015,7 +1131,7 @@ function generateFlightProfile(config) {
           const cDme = Math.round(bd.distNm * 10) / 10;
           const cFixPos = destPoint(station.pos, cCourse, cDme);
           const mid = { lat: (currentPos.lat + cFixPos.lat) / 2, lon: (currentPos.lon + cFixPos.lon) / 2 };
-          if (pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys))) {
+          if (inRing(cFixPos) && pointInAnyPolygon(cFixPos, selectedPolys) && (!startInArea || pointInAnyPolygon(mid, selectedPolys))) {
             course = cCourse; dme = cDme; fixPos = cFixPos; kind = "fixToFix"; arcExtra = undefined;
           }
         }
@@ -1027,7 +1143,8 @@ function generateFlightProfile(config) {
       // take any point straight out of the selected area(s), no further path
       // validation. The fix is still guaranteed in-area even if this particular
       // leg's join isn't as clean as usual.
-      const point = samplePointInPolygons(selectedPolys);
+      let point = samplePointInPolygons(selectedPolys);
+      for (let t = 0; point && ring && t < 60 && !inRing(point); t++) point = samplePointInPolygons(selectedPolys);
       if (point) {
         const bd = bearingDistance(station.pos, point);
         course = Math.round(bd.bearing);
@@ -1038,16 +1155,22 @@ function generateFlightProfile(config) {
       }
     }
     if (course === undefined) {
-      course = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
-      dme = roundTo(rand(6, 25), 1);
-      if (kind === "dmeArc") {
-        const turn = pick(["left", "right"]);
-        const sweepDeg = roundTo(rand(20, 70), 10);
-        arcExtra = computeArcFix(station.pos, course, dme, turn, sweepDeg);
-        arcExtra.turn = turn; arcExtra.sweepDeg = sweepDeg;
-        fixPos = arcExtra.exitPos;
-      } else {
-        fixPos = destPoint(station.pos, course, dme);
+      // With a training ring, retry random candidates until the fix (and, for an arc,
+      // its midpoint) lands inside the ring; otherwise the first candidate stands.
+      for (let tries = 0; tries < (ring ? 300 : 1); tries++) {
+        course = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
+        dme = roundTo(rand(6, 25), 1);
+        if (kind === "dmeArc") {
+          const turn = pick(["left", "right"]);
+          const sweepDeg = roundTo(rand(20, 70), 10);
+          arcExtra = computeArcFix(station.pos, course, dme, turn, sweepDeg);
+          arcExtra.turn = turn; arcExtra.sweepDeg = sweepDeg;
+          fixPos = arcExtra.exitPos;
+          if (inRing(fixPos) && inRing(arcExtra.midPos)) break;
+        } else {
+          fixPos = destPoint(station.pos, course, dme);
+          if (inRing(fixPos)) break;
+        }
       }
     }
 
@@ -1095,11 +1218,15 @@ function generateFlightProfile(config) {
       // self-contained holding exercise at its own location, distinct from any
       // final "Ending: Hold" (which is a separate thing that happens after all
       // legs, possibly at yet another fix).
+      // The hold sits on radial `course` of the VTBL TACAN, inbound TO the station:
+      // inbound course = radial + 180. The aircraft flies direct to the fix, so the
+      // arrival heading (and therefore the entry sector) depends on where it comes from.
       const { bearing, distNm } = bearingDistance(station.pos, currentPos);
-      const { side, interceptHeading } = solveIntercept(bearing, course, interceptAngle);
-      const inboundCourse = roundTo(randInt(0, 359), courseStep) % 360 || (courseStep === 30 ? 360 : 0);
+      const { bearing: directBrg, distNm: directDist } = bearingDistance(currentPos, fixPos);
+      const arrivalHeading = Math.round(directBrg) % 360;
+      const inboundCourse = norm360(course + 180) || 360;
       const holdTurn = config.turnMode === "mixed" ? pick(["right", "right", "right", "left"]) : config.turnMode;
-      const entry = classifyEntry(inboundCourse, course, holdTurn);
+      const entry = classifyEntry(inboundCourse, arrivalHeading, holdTurn);
       legs.push({
         index: i + 1,
         kind: "hold",
@@ -1110,15 +1237,14 @@ function generateFlightProfile(config) {
         fromPos: currentPos,
         bearingFromStation: Math.round(bearing * 10) / 10,
         distanceNm: Math.round(distNm * 10) / 10,
-        side,
-        interceptAngle,
-        interceptHeading: Math.round(interceptHeading),
+        directCourse: arrivalHeading,
+        directDistNm: Math.round(directDist * 10) / 10,
         fixPos,
         inboundCourse,
         turn: holdTurn,
         entry,
         holdLeg: { kind: "time", value: 1 },
-        marginToBoundary: entryDistanceToBoundary(norm360(course - inboundCourse), holdTurn),
+        marginToBoundary: entryDistanceToBoundary(norm360(arrivalHeading - inboundCourse), holdTurn),
         headingAtFix: inboundCourse,
       });
     } else {
@@ -1162,9 +1288,22 @@ function holdLegsFarEnoughFromDeparture(profile) {
     .every((l) => bearingDistance(profile.departure.arp, l.fixPos).distNm >= MIN_HOLD_DIST_FROM_DEP_NM);
 }
 
+function holdEntriesClear(profile) {
+  return profile.legs.filter((l) => l.kind === "hold").every((l) => l.marginToBoundary >= 5);
+}
+
+function legsInsideRing(profile) {
+  const ring = profile.config.ring;
+  if (!ring) return true;
+  return profile.legs.every((l) => {
+    const d = bearingDistance(profile.departure.arp, l.fixPos).distNm;
+    return d >= ring.minNm && d <= ring.maxNm;
+  });
+}
+
 function generateFlightProfileValidated(config) {
   let profile = generateFlightProfile(config);
-  for (let tries = 0; tries < 50 && !holdLegsFarEnoughFromDeparture(profile); tries++) {
+  for (let tries = 0; tries < 50 && !(holdLegsFarEnoughFromDeparture(profile) && legsInsideRing(profile) && holdEntriesClear(profile)); tries++) {
     profile = generateFlightProfile(config);
   }
   return profile;
@@ -1221,6 +1360,42 @@ function lineIntersect(p, dirDeg, a, aDirDeg) {
 // so 90 KIAS (the midpoint) stands in since no real airspeed is modelled elsewhere.
 const HOLD_IAS_KT = 90;
 
+/** Fly an entry path as a polyline: straight leg, then a standard-rate turn of
+ * radius r until the aircraft can intercept the inbound course (line through F,
+ * heading IC) at 30-45° before reaching F, then straight to the intercept point and
+ * on to F. dir = +1 right turn, -1 left turn. */
+function holdEntryPath(F, IC, O, s, L, r, key) {
+  const pts = [F];
+  let pos, hdg, dir;
+  if (key === "parallel") {
+    hdg = O; dir = -s;
+  } else {
+    hdg = norm360(O - s * 30); dir = s;
+  }
+  pos = polarNM(F, hdg, L);
+  pts.push(pos);
+  const center = polarNM(pos, hdg + dir * 90, r);
+  const startB = norm360(hdg + dir * 90 + 180);
+  let swept = 0, hit = null;
+  for (swept = 10; swept <= 300; swept += 1) {
+    const h = norm360(hdg + dir * swept);
+    const here = polarNM(center, startB + dir * swept, r);
+    const crossAng = Math.abs(((h - IC + 540) % 360) - 180);
+    if (crossAng >= 30 && crossAng <= 60) {
+      const P = lineIntersect(here, h, F, IC);
+      const along = P ? (P.x - F.x) * Math.sin((IC * Math.PI) / 180) + (P.y - F.y) * Math.cos((IC * Math.PI) / 180) : 1;
+      if (P && along < -0.2) { hit = { here, P, swept }; break; }
+    }
+  }
+  if (!hit) {
+    hit = { swept: 180, here: polarNM(center, startB + dir * 180, r), P: null };
+  }
+  pts.push(...arcPointsNM(center, r, startB, dir * hit.swept, Math.max(6, Math.ceil(hit.swept / 10))));
+  if (hit.P) pts.push(hit.P);
+  pts.push(F);
+  return pts;
+}
+
 /** Racetrack (holding pattern) outline + entry-maneuver kink, in NM-plane,
  * anchored at `atNM` (the fix). The outbound leg is drawn to scale from the
  * actual briefed leg (DME leg: that many NM; time leg: minutes converted via
@@ -1246,17 +1421,16 @@ function computeRacetrackXY(atNM, ending) {
   const arc2 = arcPointsNM(C2, r, norm360(O + turnSide + 180), sweep);
   const loop = [A, ...arc1, B, ...arc2.slice(1)];
 
-  let kink = null;
-  if (ending.entry.key === "teardrop") {
-    const tdHeading = norm360(O - (turn === "right" ? 30 : -30));
-    const P1 = polarNM(F, tdHeading, L * 0.5);
-    kink = [F, P1, F];
-  } else if (ending.entry.key === "parallel") {
-    const P1 = polarNM(F, O, L * 0.5);
-    const Cp = polarNM(P1, O + turnSide, r * 0.8);
-    const arcP = arcPointsNM(Cp, r * 0.8, norm360(O + turnSide + 180), turn === "right" ? 210 : -210, 20);
-    kink = [F, P1, ...arcP, F];
-  }
+  // Entry maneuver (FAA/ICAO standard), drawn as flown at standard-rate turns:
+  //  - Direct: no extra maneuver — just turn outbound at the fix.
+  //  - Parallel (Sector 1): cross the fix, fly outbound heading O for the leg length,
+  //    turn AGAINST the pattern direction (toward the holding side) until able to
+  //    intercept the inbound course, then return to the fix.
+  //  - Teardrop / Offset (Sector 2): cross the fix, fly outbound 30° off O toward the
+  //    holding side for the leg length, turn IN the pattern direction to intercept
+  //    the inbound course, then return to the fix.
+  const s = turn === "right" ? 1 : -1;
+  const kink = ending.entry.key === "direct" ? null : holdEntryPath(F, IC, O, s, L, r, ending.entry.key);
   return { F, A, B, loop, kink };
 }
 
@@ -1288,7 +1462,7 @@ function computeProfileGeometry(profile) {
       const sweepSigned = L.leg.turn === "right" ? L.leg.sweepDeg : -L.leg.sweepDeg;
       L.arcPts = arcPointsNM(L.stationXY, L.leg.dme, L.leg.course, sweepSigned, 24);
     } else if (L.leg.kind === "hold") {
-      L.interceptXY = lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY;
+      L.interceptXY = L.fromXY; // direct to the holding fix, no radial intercept
       L.racetrack = computeRacetrackXY(L.fixXY, { inboundCourse: L.leg.inboundCourse, turn: L.leg.turn, entry: L.leg.entry, leg: L.leg.holdLeg });
     } else {
       L.interceptXY = lineIntersect(prevXY, L.leg.interceptHeading, L.stationXY, L.leg.course) || L.fixXY;
@@ -1382,9 +1556,8 @@ async function renderProfileMap(container, profile) {
       L.polyline(arcLLObjs.map(llArr), TRACK_STYLE).addTo(map)
         .bindTooltip(`${L_.leg.dme} DME arc, ${L_.leg.turn.toUpperCase()} turn, R${pad3(L_.leg.course)}° → R${pad3(L_.leg.exitRadial)}°`, { sticky: true });
     } else if (L_.leg.kind === "hold") {
-      L.polyline([llArr(fromLL), llArr(interceptLL)], INTERCEPT_STYLE).addTo(map);
-      L.polyline([llArr(interceptLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
-        .bindTooltip(`Track ${pad3(L_.leg.course)}° to ${L_.leg.dme} DME`, { sticky: true });
+      L.polyline([llArr(fromLL), llArr(fixLL)], TRACK_STYLE).addTo(map)
+        .bindTooltip(`Direct ${pad3(L_.leg.directCourse)}° / ${L_.leg.directDistNm} NM to hold fix`, { sticky: true });
       const rt = L_.racetrack;
       const loopPts = rt.loop.map((p) => geo.toLL(p));
       loopPts.forEach(addBounds);
@@ -1411,7 +1584,19 @@ async function renderProfileMap(container, profile) {
   // added after so it can still be toggled; low-key styling keeps it out of the way.
   drawTrainingAreaOverlay(map, profile);
 
-  if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] });
+  // Training ring (min/max NM from the departure ARP), if the instructor enabled one.
+  if (profile.config.ring) {
+    const c = [profile.departure.arp.lat, profile.departure.arp.lon];
+    [profile.config.ring.minNm, profile.config.ring.maxNm].forEach((nm) => {
+      L.circle(c, { radius: nm * 1852, color: "#3ecfab", weight: 1.5, dashArray: "6 6", opacity: .8, fill: false, interactive: false })
+        .addTo(map).bindTooltip(`${nm} NM from ${profile.departure.icao}`, { sticky: true });
+    });
+    const r = profile.config.ring.maxNm / 60;
+    addBounds({ lat: profile.departure.arp.lat + r, lon: profile.departure.arp.lon });
+    addBounds({ lat: profile.departure.arp.lat - r, lon: profile.departure.arp.lon });
+  }
+
+  if (bounds.length) map.fitBounds(bounds, { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40] });
   return map;
 }
 
@@ -1502,8 +1687,7 @@ function buildKML(profile) {
       lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
       lines.push(kmlLine(`Leg ${i + 1} — ${L.leg.dme}DME arc R${pad3(L.leg.course)} to R${pad3(L.leg.exitRadial)}`, "trackStyle", L.arcPts.map(geo.toLL)));
     } else if (L.leg.kind === "hold") {
-      lines.push(kmlLine(`Leg ${i + 1} — intercept`, "interceptStyle", [fromLL, interceptLL]));
-      lines.push(kmlLine(`Leg ${i + 1} — track ${pad3(L.leg.course)}°`, "trackStyle", [interceptLL, fixLL]));
+      lines.push(kmlLine(`Leg ${i + 1} — direct ${pad3(L.leg.directCourse)}°/${L.leg.directDistNm}NM to hold fix`, "trackStyle", [fromLL, fixLL]));
       lines.push(kmlLine(`Leg ${i + 1} — holding pattern`, "trackStyle", L.racetrack.loop.map(geo.toLL)));
       if (L.racetrack.kink) lines.push(kmlLine(`Leg ${i + 1} — hold entry`, "interceptStyle", L.racetrack.kink.map(geo.toLL)));
     } else {
@@ -1620,6 +1804,7 @@ function applyDifficultyPreset(level) {
   document.getElementById("selStandard").value = preset.standard;
   state.difficulty = preset.rounding;
   state.turnMode = preset.turn;
+  syncSidebar();
 }
 
 function turnLabel(t) { return t === "right" ? "Right (standard)" : "Left (non-standard)"; }
@@ -1705,7 +1890,19 @@ function readConfig() {
     turnMode: state.turnMode,
     trainingAreas: document.getElementById("fieldTrainingArea").style.display !== "none" ? state.trainingAreas : [],
     standard: document.getElementById("selStandard").value,
+    ring: readRing(),
   };
+}
+
+// 8-20 NM training ring around the departure airport (null when disabled).
+function readRing() {
+  if (!document.getElementById("chkRing").checked) return null;
+  let lo = parseFloat(document.getElementById("numRingMin").value);
+  let hi = parseFloat(document.getElementById("numRingMax").value);
+  if (!isFinite(lo)) lo = 8;
+  if (!isFinite(hi)) hi = 20;
+  if (lo > hi) [lo, hi] = [hi, lo];
+  return { minNm: Math.max(0, lo), maxNm: Math.max(hi, 1) };
 }
 
 /* ---------------- Text builders (English) ---------------- */
@@ -1723,12 +1920,28 @@ function legGivenText(L, i) {
       + `At ${L.dme} DME, turn <b>${L.turn.toUpperCase()}</b> onto the ${L.dme} DME arc and fly it to intercept <b>R-${pad3(L.exitRadial)}</b> — this is FIX ${i + 1}.`;
   }
   if (L.kind === "hold") {
-    return `<b>Leg ${i + 1} (Holding):</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
-      + `intercept course <b>${pad3(L.course)}°</b> and track it to <b>${L.dme} DME</b> from ${st.id || st.type} — this is FIX ${i + 1}. `
-      + `Hold at ${st.id || st.type}, inbound course <b>${pad3(L.inboundCourse)}°</b>, ${L.turn.toUpperCase()} TURNS, 1 min legs.`;
+    return `<b>Leg ${i + 1} (Holding):</b> FIX ${i + 1} is <b>R${pad3(L.course)}°/${L.dme} DME</b> from ${stLabel}. `
+      + `From your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${st.id || st.type}), proceed direct to FIX ${i + 1} and hold on the `
+      + `<b>R-${pad3(L.course)}</b> radial, <b>inbound to ${st.id || st.type}</b> (inbound course <b>${pad3(L.inboundCourse)}°</b>), ${L.turn.toUpperCase()} TURNS, 1 min legs.`;
   }
   return `<b>Leg ${i + 1}:</b> from your current position (${L.bearingFromStation.toFixed(0)}°/${L.distanceNm} NM from ${stLabel}), `
     + `intercept course <b>${pad3(L.course)}°</b> and track it to <b>${L.dme} DME</b> from ${st.id || st.type} — this is FIX ${i + 1}.`;
+}
+
+
+// Standard (FAA/ICAO) entry procedure text for the answer key.
+function entryProcedure(L) {
+  const toward = L.turn === "right" ? "left" : "right"; // against the pattern direction
+  if (L.entry.key === "direct") {
+    return `<b>Direct:</b> on reaching the fix, turn ${L.turn} to the outbound heading ${pad3(norm360(L.inboundCourse + 180))}° and fly the pattern.`;
+  }
+  if (L.entry.key === "parallel") {
+    return `<b>Parallel:</b> at the fix turn to outbound heading ${pad3(norm360(L.inboundCourse + 180))}°, fly it for 1 min, turn ${toward} (toward the holding side) `
+      + `to intercept the inbound course ${pad3(L.inboundCourse)}°, then return to the fix and turn ${L.turn} to follow the pattern.`;
+  }
+  const off = norm360(L.inboundCourse + 180 + (L.turn === "right" ? -30 : 30));
+  return `<b>Teardrop / Offset:</b> at the fix turn to heading ${pad3(off)}° (30° off the outbound course, holding side), fly 1 min, `
+    + `turn ${L.turn} to intercept the inbound course ${pad3(L.inboundCourse)}°, then proceed to the fix and fly the pattern.`;
 }
 
 function endingGivenText(profile) {
@@ -1764,7 +1977,7 @@ function buildSetupHtml(profile) {
       rows.push([`Leg ${i + 1} type`, "Holding"]);
       rows.push([`Leg ${i + 1} course / DME`, `${pad3(L.course)}° / ${L.dme} NM`]);
       rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
-      rows.push([`Leg ${i + 1} hold inbound / turn`, `${pad3(L.inboundCourse)}° / ${turnLabel(L.turn)}`]);
+      rows.push([`Leg ${i + 1} hold radial / inbound`, `R-${pad3(L.course)} / ${pad3(L.inboundCourse)}° (to ${L.station.id || L.station.type}) · ${turnLabel(L.turn)}`]);
     } else {
       rows.push([`Leg ${i + 1} course / DME`, `${pad3(L.course)}° / ${L.dme} NM`]);
       rows.push([`Leg ${i + 1} start position`, `${L.bearingFromStation.toFixed(0)}° / ${L.distanceNm} NM from station`]);
@@ -1784,12 +1997,12 @@ function buildAnswerHtml(profile) {
         + `<p class="note">Aircraft is on the ${L.side} side of R-${pad3(L.course)} → turn ${L.side === "right" ? "left" : "right"}, ${L.interceptAngle}° off course to intercept. `
         + `At ${L.dme} DME, turn ${L.turn} and fly the ${L.dme} DME arc (~${L.sweepDeg}° of turn) to R-${pad3(L.exitRadial)}, rolling out on approximately ${pad3(L.headingAtFix)}°.</p>`;
     } else if (L.kind === "hold") {
-      html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept</div>`
-        + `<p class="note">Aircraft is on the ${L.side} side of course ${pad3(L.course)}° → turn ${L.side === "right" ? "left" : "right"}, `
-        + `${L.interceptAngle}° off course. Once established, track ${pad3(L.course)}° to ${L.dme} DME.</p>`
+      html += `<div class="result">Leg ${i + 1}: fly direct <b>${pad3(L.directCourse)}°</b> / ${L.directDistNm} NM to the hold fix</div>`
+        + `<p class="note">Fix is R-${pad3(L.course)} / ${L.dme} DME of ${L.station.id || L.station.type}; hold inbound on that radial to the station.</p>`
         + `<div class="result">Holding entry: ${entryLabel(L.entry, profile.config.standard)}</div>`
-        + `<p class="note">Arrival heading ${pad3(L.course)}° is ${L.entry.delta}° (clockwise) from inbound course ${pad3(L.inboundCourse)}° `
-        + `→ ${L.entry.key} sector for ${L.turn}-hand turns (margin ${L.marginToBoundary.toFixed(0)}°).</p>`;
+        + `<p class="note">Arrival heading ${pad3(L.directCourse)}° is ${L.entry.delta}° (clockwise) from inbound course ${pad3(L.inboundCourse)}° `
+        + `→ ${L.entry.key} sector for ${L.turn}-hand turns (margin ${L.marginToBoundary.toFixed(0)}°).</p>`
+        + `<p class="note">${entryProcedure(L)}</p>`;
     } else {
       html += `<div class="result">Leg ${i + 1}: fly <b>${pad3(L.interceptHeading)}°</b> to intercept</div>`
         + `<p class="note">Aircraft is on the ${L.side} side of course ${pad3(L.course)}° → turn ${L.side === "right" ? "left" : "right"}, `
@@ -1852,8 +2065,76 @@ function wireDetailTabs() {
   });
 }
 
+
+/* ---------------- Sidebar widgets ---------------- */
+// Turn every select[data-seg] into a segmented control and every .stepper-in number
+// input into a −/+ stepper. The original elements stay in the DOM (hidden / wrapped)
+// as the single source of truth, so readConfig() and the presets keep working.
+function enhanceSidebar() {
+  document.querySelectorAll("select[data-seg]").forEach((sel) => {
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    Array.from(sel.options).forEach((o) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.dataset.val = o.value; b.textContent = o.textContent;
+      b.addEventListener("click", () => {
+        if (sel.value === o.value) return;
+        sel.value = o.value;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      seg.appendChild(b);
+    });
+    sel.style.display = "none";
+    sel.after(seg);
+    sel._seg = seg;
+  });
+  document.querySelectorAll("input.stepper-in").forEach((inp) => {
+    const wrap = document.createElement("div");
+    wrap.className = "stepper";
+    const mk = (txt, dir) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = txt; b.tabIndex = -1;
+      b.addEventListener("click", () => {
+        const step = parseFloat(inp.step) || 1;
+        const min = inp.min === "" ? -Infinity : parseFloat(inp.min);
+        const max = inp.max === "" ? Infinity : parseFloat(inp.max);
+        const v = (parseFloat(inp.value) || 0) + dir * step;
+        inp.value = Math.min(max, Math.max(min, v));
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      return b;
+    };
+    inp.before(wrap);
+    wrap.append(mk("−", -1), inp, mk("+", 1));
+  });
+  ["numLegs", "numFixToFix", "numDmeArc", "numHoldingLegs"].forEach((id) =>
+    document.getElementById(id).addEventListener("input", syncSidebar));
+  document.querySelectorAll("select[data-seg]").forEach((s) => s.addEventListener("change", syncSidebar));
+  document.getElementById("chkRing").addEventListener("change", syncSidebar);
+  syncSidebar();
+}
+
+// Refresh the derived UI (segment highlights, intercept-leg count, ring fields).
+function syncSidebar() {
+  document.querySelectorAll("select[data-seg]").forEach((sel) => {
+    sel._seg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.val === sel.value));
+  });
+  const total = Math.max(2, Math.min(10, parseInt(document.getElementById("numLegs").value, 10) || 4));
+  const special = ["numFixToFix", "numDmeArc", "numHoldingLegs"]
+    .reduce((n, id) => n + Math.max(0, parseInt(document.getElementById(id).value, 10) || 0), 0);
+  const note = document.getElementById("mixNote");
+  const rest = total - special;
+  note.classList.toggle("warn", rest < 0);
+  note.innerHTML = rest < 0
+    ? `Mix uses ${special} legs but total is ${total} — raise Total legs.`
+    : `Remaining <b>${rest}</b> leg${rest === 1 ? "" : "s"} will be Intercept.`;
+  document.getElementById("ringFields").style.display = document.getElementById("chkRing").checked ? "" : "none";
+}
+
+
 function main() {
   initAirportSelects();
+  enhanceSidebar();
   document.getElementById("selRounding").addEventListener("change", (e) => (state.difficulty = e.target.value));
   document.getElementById("selTurn").addEventListener("change", (e) => (state.turnMode = e.target.value));
   document.getElementById("chkTwoStations").addEventListener("change", (e) => {
