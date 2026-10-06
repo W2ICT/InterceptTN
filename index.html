@@ -367,6 +367,9 @@ header.app-header h1 { font-size: 14px; }
 .switch-text b { color: var(--teal); }
 @media (max-width: 860px) { .panel { display: block; } .panel-foot { position: sticky; bottom: 0; } }
 
+/* While the print dialog is being prepared the map is pinned full-page so it can be
+   re-fitted and its satellite tiles loaded at the real printed size. */
+@media screen { body.print-prep .map-area { position: fixed !important; left: 0; top: 0; width: 277mm; height: 188mm; z-index: 100000; } }
 /* ---------------- Print — two landscape pages: page 1 is the profile view
    (map + scenario side by side), page 2 is the detail (setup + answer key,
    full width). detail-panel/detail-body are unwrapped with display:contents
@@ -375,27 +378,46 @@ header.app-header h1 { font-size: 14px; }
 @media print {
   @page { size: landscape; margin: 9mm; }
   header.app-header, .panel, .sidebar-toggle, .toolbar-row, .icon-btn, .detail-toggle { display: none !important; }
+  .leaflet-control-zoom { display: none !important; }
+  .leaflet-bottom.leaflet-left { margin-left: 0 !important; }
+  .leaflet-bottom.leaflet-right { margin-right: 0 !important; }
+  html, body { height: auto !important; overflow: visible !important; }
   body { background: #fff; color: #000; font-size: 9.5px; }
   .layout { display: block; padding: 0; height: auto; }
   .gis-workspace { display: block !important; margin-left: 0 !important; position: static !important; }
 
   .map-area { position: relative !important; display: block; width: 100%; height: 188mm; border: none; page-break-inside: avoid; page-break-after: always; }
-  .detail-panel, .detail-body { display: contents !important; }
+  /* Page 2: scenario → setup → answer key flow as ONE continuous 2-column text,
+     so reading runs down column 1 then column 2 (not per-section columns). */
+  .detail-panel { display: contents !important; }
+  .detail-body {
+    display: block !important; clear: both; width: 100%; column-count: 2; column-gap: 16px; font-size: 9px; line-height: 1.4;
+    /* a scroll container can't be split across pages — it would clip the text */
+    overflow: visible !important; height: auto !important; max-height: none !important; flex: none !important; padding: 0 !important;
+  }
   .detail-tabs { display: none; }
   .dpane { display: none !important; }
 
   .dpane[data-pane="scenario"], .dpane[data-pane="setup"], .dpane[data-pane="answer"] {
-    display: block !important; clear: both; width: 100%;
-    column-count: 2; column-gap: 16px; font-size: 9px; line-height: 1.35;
+    display: block !important; width: auto; padding: 0 0 2mm;
   }
-  .dpane[data-pane="scenario"] { padding-top: 2mm; font-size: 9.5px; line-height: 1.5; }
+  .dpane::before {
+    display: block; margin: 0 0 2mm; padding-bottom: 1mm; border-bottom: 1.5px solid #000;
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #000;
+  }
+  .dpane[data-pane="scenario"]::before { content: "Scenario"; }
+  .dpane[data-pane="setup"]::before { content: "Setup"; margin-top: 3mm; }
+  .dpane[data-pane="answer"]::before { content: "Answer key"; margin-top: 3mm; }
+  .dpane::before { break-after: avoid; }
 
   .dpane.print-hide { display: none !important; }
-  .dpane p, .dpane td, .dpane b { color: #000; margin: 3px 0; }
-  .dpane .result { font-size: 9.5px; margin: 6px 0 2px; break-inside: avoid-column; }
-  .dpane .note { font-size: 8px; }
-  .dpane table { font-size: 8.5px; width: 100%; }
+  .dpane p, .dpane td, .dpane b { color: #000; margin: 3px 0; font-size: 9.5px; line-height: 1.45; }
+  .dpane .result { font-size: 9.5px; margin: 6px 0 2px; color: #000; break-inside: avoid-column; break-after: avoid-column; }
+  .dpane .note { font-size: 8.5px; color: #222 !important; break-inside: avoid-column; }
+  .dpane table { font-size: 9px; width: 100%; }
+  .dpane tr { break-inside: avoid; }
   .dpane td { padding: 2px 3px; }
+  .dpane td.k { color: #333; }
 }
 </style>
 </head>
@@ -1518,11 +1540,12 @@ async function renderProfileMap(container, profile) {
   // yet available" placeholder tile past their real coverage. maxNativeZoom caps real
   // tile requests at a level Esri reliably has everywhere, and Leaflet upscales the
   // last good tile for zoom beyond that instead of ever fetching the placeholder.
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  map._tiles = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
     maxZoom: 19,
     maxNativeZoom: 16,
     attribution: "Tiles &copy; Esri",
   }).addTo(map);
+  map._areaPts = [];
   addLegend(map);
 
   const bounds = [];
@@ -1616,7 +1639,9 @@ async function renderProfileMap(container, profile) {
   }
 
   if (bounds.length) map.fitBounds(bounds, { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40] });
-  map._fitBounds = bounds; // re-fit for the full-page print layout (no floating panels)
+  // Print view: frame just the selected training sub-area(s) (the route lies inside
+  // them); with no area selected, frame the whole route instead.
+  map._fitBounds = map._areaPts.length ? map._areaPts : bounds;
   return map;
 }
 
@@ -1635,6 +1660,7 @@ function drawTrainingAreaOverlay(map, profile) {
     Object.keys(polys.areas).forEach((key) => {
       if (usedKeys.size && !usedKeys.has(key)) return;
       const ring = polys.areas[key].map(llArr);
+      if (usedKeys.has(key)) ring.forEach((p) => map._areaPts.push(p));
       const poly = L.polygon(ring, { stroke: false, fillColor: "#3ecfab", fillOpacity: .08 }).addTo(map);
       poly.bindTooltip(key.replace("area", "Area "), { sticky: true });
     });
@@ -2217,25 +2243,34 @@ function main() {
   document.getElementById("btnPrint").addEventListener("click", () => {
     const includeAnswers = document.getElementById("chkShowAnswers").checked;
     document.getElementById("paneAnswer").classList.toggle("print-hide", !includeAnswers);
-    window.print();
+    window.printWithMap();
   });
 
   window.addEventListener("resize", () => { if (state.currentMap) state.currentMap.invalidateSize(); });
 
-  // Print page 1 is the map alone, full width: resize it and fit the whole profile
-  // with even padding (the on-screen fit leaves room for the floating panels).
-  window.addEventListener("beforeprint", () => {
+  // Print page 1 is the satellite map alone, full width, framed on the selected
+  // training area. The on-screen fit leaves room for floating panels, so re-fit at
+  // the printed size and wait for the tiles before the print dialog opens.
+  const fitMap = (print) => {
     const m = state.currentMap;
     if (!m) return;
     m.invalidateSize({ animate: false });
-    if (m._fitBounds && m._fitBounds.length) m.fitBounds(m._fitBounds, { padding: [30, 30], animate: false });
-  });
-  window.addEventListener("afterprint", () => {
+    if (m._fitBounds && m._fitBounds.length) {
+      m.fitBounds(m._fitBounds, print ? { padding: [14, 14], animate: false }
+        : { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40], animate: false });
+    }
+  };
+  window.addEventListener("beforeprint", () => fitMap(true));
+  window.addEventListener("afterprint", () => { document.body.classList.remove("print-prep"); fitMap(false); });
+  window.printWithMap = () => {
     const m = state.currentMap;
-    if (!m) return;
-    m.invalidateSize({ animate: false });
-    if (m._fitBounds && m._fitBounds.length) m.fitBounds(m._fitBounds, { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40], animate: false });
-  });
+    document.body.classList.add("print-prep");
+    fitMap(true);
+    let done = false;
+    const go = () => { if (done) return; done = true; window.print(); };
+    if (m && m._tiles) m._tiles.once("load", () => setTimeout(go, 300));
+    setTimeout(go, 3500); // don't hang if the tile server is slow/offline
+  };
 
   document.getElementById("sidebarToggle").addEventListener("click", () => {
     document.getElementById("layoutRoot").classList.toggle("collapsed");
