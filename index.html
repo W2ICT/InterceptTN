@@ -172,6 +172,8 @@ button.tool-pill:not(:disabled):hover { border-color: var(--teal); color: var(--
 .check-row { display: flex; align-items: flex-start; gap: 7px; font-size: 11.5px; color: var(--muted); margin-top: 5px; cursor: pointer; line-height: 1.35; }
 .check-row input { margin-top: 2px; accent-color: var(--teal); }
 .check-row-tight { margin-top: 2px; margin-bottom: 8px; }
+.station-list { display: flex; flex-direction: column; gap: 1px; }
+.station-list .check-row { margin-top: 2px; color: var(--text, inherit); }
 
 button.primary {
   width: 100%; padding: 10px; background: var(--accent); color: #241700; font-weight: 700;
@@ -377,20 +379,16 @@ header.app-header h1 { font-size: 14px; }
   .layout { display: block; padding: 0; height: auto; }
   .gis-workspace { display: block !important; margin-left: 0 !important; position: static !important; }
 
-  .map-area { position: relative !important; float: left; width: 46%; margin-right: 2%; height: 178mm; border: none; page-break-inside: avoid; }
+  .map-area { position: relative !important; display: block; width: 100%; height: 188mm; border: none; page-break-inside: avoid; page-break-after: always; }
   .detail-panel, .detail-body { display: contents !important; }
   .detail-tabs { display: none; }
   .dpane { display: none !important; }
 
-  .dpane[data-pane="scenario"] {
-    display: block !important; float: right; width: 50%; padding: 2mm 0;
-    font-size: 9.5px; line-height: 1.55;
-  }
-  .dpane[data-pane="setup"], .dpane[data-pane="answer"] {
+  .dpane[data-pane="scenario"], .dpane[data-pane="setup"], .dpane[data-pane="answer"] {
     display: block !important; clear: both; width: 100%;
     column-count: 2; column-gap: 16px; font-size: 9px; line-height: 1.35;
   }
-  .dpane[data-pane="setup"] { page-break-before: always; padding-top: 2mm; }
+  .dpane[data-pane="scenario"] { padding-top: 2mm; font-size: 9.5px; line-height: 1.5; }
 
   .dpane.print-hide { display: none !important; }
   .dpane p, .dpane td, .dpane b { color: #000; margin: 3px 0; }
@@ -468,8 +466,8 @@ header.app-header h1 { font-size: 14px; }
           </div>
           <div class="mix-note" id="mixNote"></div>
           <div class="field" id="fieldHoldRef" style="margin-top:9px;">
-            <label>Holding reference <span class="hint">radial &amp; inbound taken from this navaid</span></label>
-            <select id="selHoldRef"></select>
+            <label>Stations <span class="hint">tick one or more — used by all leg types</span></label>
+            <div class="station-list" id="stationList"></div>
           </div>
         </div>
       </div>
@@ -740,6 +738,8 @@ const AIRPORTS = {
       { type: "NDB", id: "LB", freq: "280 kHz", chan: null, pos: coord("145236.27N", "1003926.45E"), remarks: null },
       { type: "TACAN", id: "LOB", freq: null, chan: "CH115X", pos: coord("145234.33N", "1003935.49E"), remarks: "EXC SAT-SUN and public holiday, or on request" },
       { type: "ILS/LOC", id: "ILOB", freq: "108.3 MHz", chan: null, pos: coord("145246.56N", "1004007.78E"), remarks: "ILS CAT I, RWY 05" },
+      { type: "VOR/DME", id: "SPN", freq: "117.3 MHz", chan: "CH120X", pos: coord("1457.017N", "10038.517E"), remarks: "DVOR/DME" },
+      { type: "NDB", id: "SP", freq: "242 kHz", chan: null, pos: coord("1456.960N", "10038.777E"), remarks: null },
     ],
     reportingPoints: [
       { name: "BRAVO", radial: 324, dme: 12.12, refNavaid: "LB NDB" },
@@ -1043,23 +1043,22 @@ function defaultHoldRef(options) {
   return options.find((o) => o.navaid.type === "TACAN") || options.find((o) => o.navaid.type === "VOR/DME") || options[0];
 }
 
-// Station every Holding leg is flown against — the instructor's choice (config.holdRefKey).
-function holdRef(config, dep) {
+// Stations the instructor ticked (config.stationKeys); falls back to every option
+// when none are ticked so a leg can always be generated.
+function selectedStations(config) {
   const options = holdRefOptions(config.departureIcao, config.secondIcao, config.stationMode === "dual");
-  return options.find((o) => o.key === config.holdRefKey) || defaultHoldRef(options) || { airport: dep, navaid: dep.navaids[0] };
+  const keys = config.stationKeys || [];
+  const chosen = options.filter((o) => keys.includes(o.key));
+  return chosen.length ? chosen : options;
 }
 
 function generateFlightProfile(config) {
   const dep = AIRPORTS[config.departureIcao];
-  const pool = [];
-  navaidsUsableAsFix(dep).forEach((n) => pool.push({ airport: dep, navaid: n }));
-  const arcPool = [];
-  navaidsUsableForArc(dep).forEach((n) => arcPool.push({ airport: dep, navaid: n }));
-  if (config.stationMode === "dual" && config.secondIcao && AIRPORTS[config.secondIcao]) {
-    const second = AIRPORTS[config.secondIcao];
-    navaidsUsableAsFix(second).forEach((n) => pool.push({ airport: second, navaid: n }));
-    navaidsUsableForArc(second).forEach((n) => arcPool.push({ airport: second, navaid: n }));
-  }
+  // Every leg kind draws its station from the ticked stations; DME arcs additionally
+  // need a DME source (VOR/DME or TACAN).
+  const pool = selectedStations(config);
+  const arcPool = pool.filter((o) => o.navaid.type === "VOR/DME" || o.navaid.type === "TACAN");
+  if (!pool.length) navaidsUsableAsFix(dep).forEach((n) => pool.push({ airport: dep, navaid: n }));
 
   const courseStep = config.difficulty === "easy" ? 30 : config.difficulty === "medium" ? 10 : 1;
   const interceptAngle = config.interceptAngle || 45;
@@ -1081,8 +1080,7 @@ function generateFlightProfile(config) {
     // airport/station-mode combo has none (e.g. an NDB-only field).
     const wantArc = legKinds[i] === "dmeArc" && arcPool.length > 0;
     let kind = legKinds[i] === "dmeArc" && !wantArc ? "intercept" : legKinds[i];
-    // Holding is flown against the navaid chosen in the Holding reference selector.
-    const ref = kind === "hold" ? holdRef(config, dep) : pick(wantArc ? arcPool : pool);
+    const ref = pick(wantArc ? arcPool : pool);
     const station = ref.navaid;
 
     // If this station's airport has a briefed training area and the instructor
@@ -1618,6 +1616,7 @@ async function renderProfileMap(container, profile) {
   }
 
   if (bounds.length) map.fitBounds(bounds, { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40] });
+  map._fitBounds = bounds; // re-fit for the full-page print layout (no floating panels)
   return map;
 }
 
@@ -1885,22 +1884,33 @@ function wireMultiChipGroup(id, onChange) {
   });
 }
 
-// Fill the Holding-reference selector from the chosen airport(s), keeping the
-// current pick when it is still available, otherwise TACAN > VOR/DME > first.
+function readStationKeys() {
+  return Array.from(document.querySelectorAll("#stationList input:checked")).map((c) => c.value);
+}
+
+// Rebuild the station checkboxes from the chosen airport(s). Previously ticked
+// stations stay ticked when still available; otherwise everything starts ticked.
 function updateHoldRefOptions() {
-  const sel = document.getElementById("selHoldRef");
+  const box = document.getElementById("stationList");
   const options = holdRefOptions(document.getElementById("selDeparture").value, document.getElementById("selSecond").value, state.stationMode === "dual");
-  const prev = sel.value;
-  sel.innerHTML = "";
+  const prev = readStationKeys().filter((k) => options.some((o) => o.key === k));
+  const ticked = prev.length ? prev : options.map((o) => o.key);
+  box.innerHTML = "";
   options.forEach((o) => {
-    const opt = document.createElement("option");
-    opt.value = o.key;
     const n = o.navaid;
-    opt.textContent = `${o.airport.icao} · ${n.id ? n.id + " " : ""}${n.type}${n.freq ? " " + n.freq : n.chan ? " " + n.chan : ""}`;
-    sel.appendChild(opt);
+    const label = document.createElement("label");
+    label.className = "check-row";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = o.key;
+    input.checked = ticked.includes(o.key);
+    // At least one station must stay ticked.
+    input.addEventListener("change", () => { if (!readStationKeys().length) input.checked = true; });
+    const span = document.createElement("span");
+    span.textContent = `${o.airport.icao} · ${n.id ? n.id + " " : ""}${n.type}${n.freq ? " " + n.freq : n.chan ? " " + n.chan : ""}`;
+    label.append(input, span);
+    box.appendChild(label);
   });
-  const keep = options.find((o) => o.key === prev) || defaultHoldRef(options);
-  if (keep) sel.value = keep.key;
 }
 
 function updateSecondAirportVisibility() {
@@ -1930,7 +1940,7 @@ function readConfig() {
     trainingAreas: document.getElementById("fieldTrainingArea").style.display !== "none" ? state.trainingAreas : [],
     standard: document.getElementById("selStandard").value,
     ring: readRing(),
-    holdRefKey: document.getElementById("selHoldRef").value,
+    stationKeys: readStationKeys(),
   };
 }
 
@@ -2168,7 +2178,6 @@ function syncSidebar() {
   note.innerHTML = rest < 0
     ? `Mix uses ${special} legs but total is ${total} — raise Total legs.`
     : `Remaining <b>${rest}</b> leg${rest === 1 ? "" : "s"} will be Intercept.`;
-  document.getElementById("fieldHoldRef").style.display = (parseInt(document.getElementById("numHoldingLegs").value, 10) || 0) > 0 ? "" : "none";
   document.getElementById("ringFields").style.display = document.getElementById("chkRing").checked ? "" : "none";
 }
 
@@ -2212,6 +2221,21 @@ function main() {
   });
 
   window.addEventListener("resize", () => { if (state.currentMap) state.currentMap.invalidateSize(); });
+
+  // Print page 1 is the map alone, full width: resize it and fit the whole profile
+  // with even padding (the on-screen fit leaves room for the floating panels).
+  window.addEventListener("beforeprint", () => {
+    const m = state.currentMap;
+    if (!m) return;
+    m.invalidateSize({ animate: false });
+    if (m._fitBounds && m._fitBounds.length) m.fitBounds(m._fitBounds, { padding: [30, 30], animate: false });
+  });
+  window.addEventListener("afterprint", () => {
+    const m = state.currentMap;
+    if (!m) return;
+    m.invalidateSize({ animate: false });
+    if (m._fitBounds && m._fitBounds.length) m.fitBounds(m._fitBounds, { paddingTopLeft: [350, 60], paddingBottomRight: [420, 40], animate: false });
+  });
 
   document.getElementById("sidebarToggle").addEventListener("click", () => {
     document.getElementById("layoutRoot").classList.toggle("collapsed");
